@@ -5,6 +5,8 @@
   const $ = (id) => document.getElementById(id);
   const photos = { doc: null, vin: null }; // resized photos, ready to upload
   let lookedUpVin = "";                    // the VIN the result on screen belongs to
+  let expected = null;                     // expected value for that VIN (base currency)
+  let ticks = {};                          // checklist: { "Engine": "matches" | "differs" }
   const money = (n) => Math.round(n).toLocaleString("en-US");
 
   // ---------- small helpers ----------
@@ -83,22 +85,24 @@
     // The vehicle.
     const known = d && d.make;
     $("vehicleCard").hidden = !known;
+    $("inspectCard").hidden = !known;
     if (known) {
+      const specsNow = d.specs || {};
+      $("vehicleSummary").textContent = ["Engine", "Fuel", "Drive", "Body"].map((k) => specsNow[k]).filter(Boolean).join(" · ");
       $("vehicleTitle").textContent = [d.year, d.make, d.model, d.trim || d.series].filter(Boolean).join(" ");
-      const rows = Object.entries(d.specs || {}).flatMap(([label, value]) => {
-        const dt = document.createElement("dt");
-        const dd = document.createElement("dd");
-        dt.textContent = label;
-        dd.textContent = value;
-        return [dt, dd];
-      });
-      $("specList").replaceChildren(...rows);
+      ticks = {};
+      const specs = { ...(d.specs || {}), "VIN on the car": "Same on dashboard, door frame and chassis stamp" };
+      $("specList").replaceChildren(...Object.entries(specs).map(([label, value]) => checklistRow(label, value)));
+      renderVersions(r.versions || []);
       $("vehicleSource").textContent = d.source ? "Source: " + d.source + "." : "";
     }
 
     // The expected price.
     $("priceCard").hidden = !v.ok;
     const value = r.value;
+    expected = value ? value.value : null;
+    $("recent") && ($("recent").hidden = true);
+    updateVerdict();
     $("priceFound").hidden = !value;
     $("priceMissing").hidden = !!value;
     if (value) {
@@ -114,13 +118,102 @@
     }
   }
 
+  // One checklist line: what the VIN says, and two buttons for what the inspector sees.
+  function checklistRow(label, value) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "grow";
+    const small = document.createElement("span");
+    small.className = "muted";
+    small.textContent = label;
+    const strong = document.createElement("strong");
+    strong.textContent = value;
+    text.append(small, document.createElement("br"), strong);
+    const buttons = ["matches", "differs"].map((state) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tick " + state;
+      b.textContent = state === "matches" ? "Matches" : "Differs";
+      b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", () => {
+        ticks[label] = ticks[label] === state ? undefined : state;   // tap again to clear
+        if (!ticks[label]) delete ticks[label];
+        buttons.forEach((other) => other.setAttribute("aria-pressed", String(ticks[label] === other.dataset.state)));
+        li.classList.toggle("differs", ticks[label] === "differs");
+      });
+      b.dataset.state = state;
+      return b;
+    });
+    li.append(text, ...buttons);
+    return li;
+  }
+
+  // Other versions (trims) of the same model, with prices where known.
+  function renderVersions(versions) {
+    $("versionsBox").hidden = versions.length < 2;
+    if (versions.length < 2) return;
+    $("versionList").replaceChildren(...versions.map((version) => {
+      const li = document.createElement("li");
+      if (version.current) li.className = "current";
+      const price = version.msrp ? ` · ${money(version.msrp)} ${config.baseCurrency} new` : "";
+      li.textContent = version.name + (version.current ? "  (this VIN)" : "") + price;
+      return li;
+    }));
+    const priced = versions.filter((x) => x.msrp).map((x) => x.msrp);
+    $("versionNote").textContent = priced.length >= 2
+      ? `Between the versions we have prices for, the gap is up to ${money(Math.max(...priced) - Math.min(...priced))} ${config.baseCurrency} when new. A car described as a different version can be worth that much more or less.`
+      : "If the paperwork or the badges name a different version than the one marked, the value can be very different.";
+  }
+
+  // The verdict appears as soon as a declared price is typed. The saved
+  // result is always recalculated on the server.
+  function updateVerdict() {
+    const box = $("verdict");
+    const declared = parseFloat($("price").value.replace(/,/g, ""));
+    const foreign = $("currency").value !== config.baseCurrency;
+    const rate = foreign ? parseFloat($("rate").value) : 1;
+    const own = parseFloat($("market").value.replace(/,/g, ""));
+    const reference = own > 0 ? own : expected;
+    if (!(declared >= 0) || !(rate > 0) || !reference) { box.hidden = true; return; }
+    const diff = (declared * rate - reference) / reference * 100;
+    const below = -diff;
+    const flag = below <= config.greenThreshold ? "green" : below <= config.yellowThreshold ? "yellow" : "red";
+    const label = { green: "Within expected range", yellow: "Needs review", red: "Needs review (priority)" }[flag];
+    box.className = "flag " + flag;
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    const line = document.createElement("span");
+    line.textContent = diff < 0 ? `${below.toFixed(1)}% below the expected price` : `${diff.toFixed(1)}% above the expected price`;
+    box.replaceChildren(strong, line);
+    if (flag !== "green") {
+      const caution = document.createElement("span");
+      caution.className = "small";
+      caution.textContent = "A risk indicator, not proof of anything.";
+      box.append(caution);
+    }
+    box.hidden = false;
+  }
+  ["price", "rate", "market"].forEach((id) => $(id).addEventListener("input", updateVerdict));
+
   $("lookupBtn").addEventListener("click", lookup);
   $("relookBtn").addEventListener("click", lookup);
   $("usePriceBtn").addEventListener("click", lookup);
   $("vin").addEventListener("keydown", (event) => { if (event.key === "Enter") lookup(); });
+  // Typing help: capitals only, no spaces, a running count, and an automatic
+  // look-up as soon as 17 valid characters are in.
   $("vin").addEventListener("input", () => {
-    // A different VIN: the result on screen no longer applies.
-    if ($("vin").value.trim().toUpperCase() !== lookedUpVin) { $("result").hidden = true; $("newPrice").value = ""; }
+    const clean = $("vin").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (clean !== $("vin").value) $("vin").value = clean;
+    const bad = [...new Set(clean.match(/[IOQ]/g) || [])];
+    $("vinCount").textContent = !clean ? "" : bad.length
+      ? `${clean.length} of 17. A VIN never contains ${bad.join(", ")}: check for 1 or 0.`
+      : `${clean.length} of 17 characters`;
+    if (clean !== lookedUpVin) {       // a different VIN: the result on screen no longer applies
+      $("result").hidden = true;
+      $("newPrice").value = "";
+      expected = null;
+      if (clean.length === 17 && !bad.length) lookup();
+    }
   });
 
   // ---------- VIN barcode scanning ----------
@@ -153,7 +246,7 @@
     $("rateFrom").textContent = currency;
     if (foreign && !$("rate").dataset.touched) $("rate").value = config.rates[currency] || "";
   }
-  $("currency").addEventListener("change", () => { delete $("rate").dataset.touched; updateRate(); });
+  $("currency").addEventListener("change", () => { delete $("rate").dataset.touched; updateRate(); updateVerdict(); });
   $("rate").addEventListener("input", () => { $("rate").dataset.touched = "1"; });
 
   $("saveBtn").addEventListener("click", async () => {
@@ -167,8 +260,9 @@
     const fields = { vin: "vin", make: "make", model: "model", trim: "trim", year: "year",
       seller: "seller", buyer: "buyer", mileage: "mileage", incoterm: "incoterm",
       declared_price: "price", currency: "currency", exchange_rate: "rate", market_value: "market",
-      market_source: "source", notes: "notes", new_price: "newPrice", physical_check: "physical" };
+      market_source: "source", notes: "notes", new_price: "newPrice" };
     Object.entries(fields).forEach(([name, id]) => form.append(name, $(id).value));
+    form.append("physical_details", JSON.stringify(ticks));
     // Unless the inspector typed their own reference value, the server works it out.
     form.append("use_provider", $("market").value.trim() ? "" : "1");
     if (photos.doc) form.append("document", photos.doc, "document.jpg");
@@ -254,6 +348,7 @@
         select.value = f.currency;
         updateRate();
       }
+      updateVerdict();
       $("progress").textContent = result.error
         || "Details read from the photo. Reading is never perfect: compare each field with the paper.";
       if (lookedUpVin) lookup(); // re-check the paper details against the VIN

@@ -165,8 +165,10 @@ def new_check(request: Request):
         "needsBrowserOcr": reader.needs_browser_ocr,
         "rates": settings["exchange_rates"],
         "baseCurrency": settings["base_currency"],
+        "greenThreshold": settings["green_threshold"],
+        "yellowThreshold": settings["yellow_threshold"],
     }
-    return page(request, "new_check.html", reader=reader, settings=settings,
+    return page(request, "new_check.html", reader=reader, settings=settings, recent=db.list_checks(limit=5),
                 provider=get_provider(), client_config=json.dumps(client_config).replace("<", "\\u003c"))
 
 
@@ -286,6 +288,23 @@ def _learn_price(vin: str, make: str, model: str, trim: str, year: int, typed: f
                      added_by=user, source=where)
 
 
+def _versions(decoded: dict, year: int) -> list[dict]:
+    """The versions (trims) this model was built in that year, marking the one
+    this VIN belongs to and adding the manufacturer's price where we know it.
+    This is what shows the money at stake when a trim is misdescribed."""
+    names = decoded.get("versions") or []
+    mine = {(decoded.get("trim") or "").lower(), (decoded.get("series") or "").lower()} - {""}
+    if len(names) < 2 or len(names) > 30 or not decoded.get("make") or not decoded.get("model"):
+        return []
+    out = []
+    for name in names:
+        entry = db.find_price(None, decoded["make"], decoded["model"], year, name)
+        exact = entry is not None and db._key(entry["trim"]) == db._key(name)
+        out.append({"name": name, "current": name.lower() in mine,
+                    "msrp": entry["msrp"] if exact else None})
+    return out
+
+
 def _to_int(value) -> int | None:
     text = str(value if value is not None else "").replace(",", "").strip()
     return int(float(text)) if text.replace(".", "", 1).isdigit() else None
@@ -316,6 +335,7 @@ async def lookup(request: Request):
         if value:
             report["value"] = value.to_dict()
             _learn_price(validation["vin"], make, model, trim, year, typed, user, "Typed in during a lookup")
+        report["versions"] = _versions(decoded, year)
     return report
 
 
@@ -361,6 +381,7 @@ async def create_check(
     declared_price: str = Form(""), currency: str = Form("USD"), exchange_rate: str = Form(""),
     market_value: str = Form(""), market_source: str = Form(""), use_provider: str = Form(""),
     new_price: str = Form(""), trim: str = Form(""), physical_check: str = Form("not_done"),
+    physical_details: str = Form(""),
     notes: str = Form(""),
     document: UploadFile | None = File(None), vin_plate: UploadFile | None = File(None),
 ):
@@ -376,7 +397,15 @@ async def create_check(
         raise HTTPException(422, f"Enter an exchange rate for {currency}.")
 
     report = _vin_report(vin, make, model, int(year_n) if year_n else None, trim)
-    if physical_check not in PHYSICAL_CHECKS:
+    # The checklist: {"Engine": "matches", "Drive": "differs", ...}
+    try:
+        ticks = {str(k)[:40]: v for k, v in json.loads(physical_details or "{}").items()
+                 if v in ("matches", "differs")}
+    except (ValueError, AttributeError):
+        ticks = {}
+    if ticks:
+        physical_check = "differs" if "differs" in ticks.values() else "matches"
+    elif physical_check not in PHYSICAL_CHECKS:
         physical_check = "not_done"
     validation = report["validation"]
     if not validation["ok"]:
@@ -413,6 +442,7 @@ async def create_check(
         "decoded_year": decoded.get("year"), "mismatch_notes": "\n".join(report["mismatches"]),
         "doc_trim": trim.strip()[:60], "decoded_trim": decoded.get("trim"),
         "decoded_specs": json.dumps(decoded.get("specs") or {}), "physical_check": physical_check,
+        "physical_details": json.dumps(ticks),
         # Identity needs review when paper and VIN disagree, or the inspector saw a difference.
         "identity_review": int(bool(report["mismatches"]) or physical_check == "differs"),
         "seller": seller.strip()[:200], "buyer": buyer.strip()[:200],
@@ -458,7 +488,9 @@ def check_detail(request: Request, check_id: int):
     if not check:
         raise HTTPException(404, "Check not found.")
     return page(request, "check.html", c=check, specs=json.loads(check["decoded_specs"] or "{}"),
-                peers=_peer_summary(check),
+                peers=_peer_summary(check), ticks=json.loads(check["physical_details"] or "{}"),
+                parties=[(label, check[col], db.party_history(col, check[col], check_id))
+                         for label, col in (("Seller", "seller"), ("Buyer", "buyer"))],
                 previous=db.previous_checks_for_vin(check["vin"], exclude_id=check_id))
 
 
@@ -482,15 +514,16 @@ def photo(filename: str):
 
 
 @app.get("/history")
-def history(request: Request, q: str = "", flag: str = ""):
+def history(request: Request, q: str = "", flag: str = "", awaiting: int = 0):
     q = q.strip()[:17]
     flag = flag if flag in FLAG_LABELS else ""
-    return page(request, "history.html", checks=db.list_checks(q, flag), q=q, flag=flag)
+    return page(request, "history.html", checks=db.list_checks(q, flag, awaiting=bool(awaiting)), q=q,
+                flag=flag, awaiting=bool(awaiting), summary=db.summary())
 
 
 CSV_COLUMNS = ["id", "created_at", "created_by", "vin", "vin_check_digit_ok", "doc_make", "doc_model",
                "doc_trim", "doc_year", "decoded_make", "decoded_model", "decoded_trim", "decoded_year",
-               "mismatch_notes", "physical_check", "identity_review", "seller",
+               "mismatch_notes", "physical_check", "physical_details", "identity_review", "seller",
                "buyer", "mileage", "incoterm", "declared_price", "currency", "exchange_rate",
                "base_currency", "declared_base", "market_value", "market_source", "diff_pct", "flag",
                "flag_label", "decision", "decision_by", "decision_at", "notes"]
@@ -614,7 +647,9 @@ def remove_price(request: Request, price_id: int):
 def _settings_page(request: Request, error: str | None = None, saved: bool = False):
     settings = db.get_settings()
     rates_text = "\n".join(f"{code} = {rate:g}" for code, rate in settings["exchange_rates"].items())
+    schedule_text = "\n".join(f"{age} = {share:g}" for age, share in enumerate(settings["depreciation"]))
     return page(request, "settings.html", settings=settings, rates_text=rates_text, error=error,
+                schedule_text=schedule_text,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
                 decoder=vpic.decoder_name(), research_on=research.enabled(),
                 storage="PostgreSQL database (permanent)" if db.is_postgres() else
@@ -629,7 +664,8 @@ def settings_page(request: Request, saved: int = 0):
 
 @app.post("/settings")
 def save_settings(request: Request, green_threshold: float = Form(...), yellow_threshold: float = Form(...),
-                  base_currency: str = Form("USD"), exchange_rates: str = Form("")):
+                  base_currency: str = Form("USD"), exchange_rates: str = Form(""),
+                  depreciation: str = Form(""), adjust_for_mileage: str = Form("")):
     require_admin(request)
     base = base_currency.strip().upper()
     try:
@@ -645,10 +681,25 @@ def save_settings(request: Request, green_threshold: float = Form(...), yellow_t
                 raise ValueError(f"Could not understand the exchange rate line '{line.strip()}'. Use the form: EUR = 1.08")
             rates[match.group(1).upper()] = float(match.group(2))
         rates[base] = 1.0
+        schedule = db.get_settings()["depreciation"]
+        if depreciation.strip():
+            entries = {}
+            for line in depreciation.splitlines():
+                if not line.strip():
+                    continue
+                match = re.fullmatch(r"\s*(\d{1,2})\s*=\s*([\d.]+)\s*%?\s*", line)
+                if not match or not 1 <= float(match.group(2)) <= 100:
+                    raise ValueError(f"Could not understand the depreciation line '{line.strip()}'. "
+                                     "Use the form: 3 = 66  (age in years = % of the new price kept)")
+                entries[int(match.group(1))] = float(match.group(2))
+            if sorted(entries) != list(range(len(entries))):
+                raise ValueError("The depreciation schedule must list every age from 0 upward, with no gaps.")
+            schedule = [entries[age] for age in range(len(entries))]
     except ValueError as exc:
         return _settings_page(request, error=str(exc))
     db.save_settings({"green_threshold": green_threshold, "yellow_threshold": yellow_threshold,
-                      "base_currency": base, "exchange_rates": rates})
+                      "base_currency": base, "exchange_rates": rates, "depreciation": schedule,
+                      "adjust_for_mileage": adjust_for_mileage == "1" or not depreciation.strip()})
     return RedirectResponse("/settings?saved=1", status_code=303)
 
 

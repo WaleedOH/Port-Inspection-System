@@ -87,3 +87,23 @@ dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .bigprice { font-size: 1.9rem; font-weight: 800; margin: 4px 0; }
 details.card > summary { font-weight: 700; cursor: pointer; padding: 6px 0; min-height: 36px; }
 details.card[open] > summary { margin-bottom: 8px; }
+.checklist, .versions { list-style: none; padding: 0; margin: 8px 0; }
+.checklist li { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.checklist li.differs { background: var(--red-bg); margin: 0 -14px; padding: 10px 14px; }
+.tick { flex: none; min-height: 44px; padding: 8px 10px; font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer;
+  border-radius: 8px; border: 2px solid #8a96a3; background: #fff; color: var(--ink); }
+.tick.matches[aria-pressed=true] { background: var(--green); border-color: var(--green); color: #fff; }
+.tick.differs[aria-pressed=true] { background: var(--red); border-color: var(--red); color: #fff; }
+.versions li { padding: 6px 10px; border-radius: 8px; margin: 4px 0; background: var(--grey-bg); overflow-wrap: anywhere; }
+.versions li.current { background: #dbe9f8; font-weight: 700; box-shadow: inset 4px 0 var(--primary); }
+.flag > span { display: block; }
+.flag .small { font-size: .9rem; margin-top: 4px; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.tiles a { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+  text-decoration: none; color: inherit; }
+.tiles a strong { display: block; font-size: 1.7rem; }
+.tiles a.on { border: 2px solid var(--primary); }
+.marks { list-style: none; padding: 0; margin: 8px 0; }
+.marks li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.marks .bad { color: var(--red); font-weight: 700; }
+.marks .good { color: var(--green); font-weight: 700; }

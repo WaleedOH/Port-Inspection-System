@@ -33,14 +33,22 @@ def _key(text: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
-def estimate_current_value(new_price: float, year: int, mileage: int | None, today: date) -> float:
-    """Rough used-car value: -18% in the first year, then -10% a year, never
-    below 8% of the new price; +/-1% per 5,000 miles from typical, max 20%."""
+# Share of the new price a car keeps at each age in years (0 = new). This is
+# only a starting point: an administrator replaces it in Settings with the
+# customs authority's official depreciation schedule.
+DEFAULT_SCHEDULE = [100, 82, 74, 66, 60, 54, 48, 44, 39, 35, 32, 29, 26, 23, 21, 19, 17, 15, 14, 12, 11, 10]
+
+
+def estimate_current_value(new_price: float, year: int, mileage: int | None, today: date,
+                           schedule: list[float] | None = None, adjust_for_mileage: bool = True) -> float:
+    """Used-car value = new price x the share kept at this age (from the
+    schedule; older cars use its last entry). Optionally +/-1% per 5,000 miles
+    away from a typical 12,000 a year, limited to 20%."""
+    schedule = schedule or DEFAULT_SCHEDULE
     age = max(0, today.year - year)
-    factor = 1.0 if age == 0 else 0.82 * (0.90 ** (age - 1))
-    value = new_price * max(factor, 0.08)
-    if mileage is not None and age > 0:
-        expected = age * 12000  # miles a typical car has at this age
+    value = new_price * schedule[min(age, len(schedule) - 1)] / 100
+    if adjust_for_mileage and mileage is not None and age > 0:
+        expected = age * 12000
         value *= 1 + max(-0.20, min(0.20, (expected - mileage) / 5000 * 0.01))
     return round(value, -2)
 
@@ -48,8 +56,11 @@ def estimate_current_value(new_price: float, year: int, mileage: int | None, tod
 class MockPricingProvider:
     name = "Mock sample data (not real market prices)"
 
-    def __init__(self, today: date | None = None):
+    def __init__(self, today: date | None = None, schedule: list[float] | None = None,
+                 adjust_for_mileage: bool = True):
         self._today = today
+        self._schedule = schedule
+        self._mileage = adjust_for_mileage
 
     def get_value(self, *, vin: str = "", make: str = "", model: str = "", year: int = 0,
                   mileage: int | None = None, new_price: float | None = None,
@@ -61,13 +72,13 @@ class MockPricingProvider:
         if new_price and new_price > 0:
             source = (f"Estimate from the manufacturer's price when new "
                       f"({new_price:,.0f} USD, {new_price_source or 'entered by inspector'}), "
-                      "reduced for age and mileage by a simple rule")
+                      "reduced for age using the depreciation schedule in Settings")
         else:
             new_price = self._sample_price(make, model)
             source = self.name
         if not new_price:
             return None
-        value = estimate_current_value(new_price, int(year), mileage, today)
+        value = estimate_current_value(new_price, int(year), mileage, today, self._schedule, self._mileage)
         return MarketValue(value=value, low=round(value * 0.85, -2), high=round(value * 1.15, -2),
                            currency="USD", source=source, as_of=today.isoformat(), new_price=basis)
 

@@ -13,10 +13,21 @@ The main screen does one thing: **scan or type a VIN, and see the vehicle and it
 3. **Expected price.** It shows the manufacturer's price when new and an estimate of today's value with a typical range, and says where the figures come from. If no price is stored for that model yet, it asks for the manufacturer's price once and remembers it.
 4. **Compare (optional).** Type the declared price and tap "Compare and save". The result page shows the difference in %, a flag, and a plain-language "Why this flag?" explanation, and can be printed or saved as PDF.
 
+Built around that, without adding steps:
+
+- **Instant verdict.** The flag appears as soon as the declared price is typed.
+- **Inspection checklist.** For each fact in the VIN (trim, engine, fuel, drive, body, doors, and the VIN's locations on the car) the inspector taps "Matches" or "Differs". Any "Differs" raises a separate **"Needs review: vehicle identity"** flag, even when the price looks fine. This is aimed at a car dressed up or described as a different version.
+- **Versions of the same model.** The app lists the versions that model was built in that year (for example Limited, SE, SEL, SHO), marks the one this VIN belongs to, and shows the price gap between versions where prices are known.
+- **Repeat sellers and buyers.** The result says when the same seller or buyer appeared in earlier checks and how many of those needed review.
+- **Typing help.** The VIN box counts characters, rejects I, O and Q, and looks up by itself at 17 characters.
+- **Your own depreciation schedule.** Today's value is the price when new reduced by an age table that an administrator sets in Settings, so it can follow the customs authority's official schedule.
+- **For supervisors.** The History page starts with totals: checks, awaiting a decision, price needs review, identity needs review.
+- **On the phone's home screen.** The app can be added to the home screen and opens like an app.
+
 Everything else is optional, under **More details**:
 
 - a photo of the paperwork, which the app can read to fill in what the paper says (make, model, trim, year, price, seller, buyer);
-- the trim on paper and whether the actual vehicle matches the VIN details. If the paper or the vehicle disagrees with the VIN, the check gets a separate **"Needs review: vehicle identity"** flag, even when the price looks fine;
+- what the paper says (make, model, trim, year). If it disagrees with the VIN, the check also gets the identity flag;
 - mileage, delivery term, a different reference value, and notes.
 
 Every saved check goes into the **History** page, with search by VIN and export to CSV. The app also warns when the same VIN was checked before.

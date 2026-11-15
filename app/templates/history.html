@@ -2,6 +2,12 @@
 {% set active = 'history' %}
 {% block content %}
 <h1>History</h1>
+<div class="tiles">
+  <a href="/history" class="{{ 'on' if not awaiting and not flag and not q }}"><strong>{{ summary.total }}</strong>checks in total</a>
+  <a href="/history?awaiting=1" class="{{ 'on' if awaiting }}"><strong>{{ summary.awaiting }}</strong>awaiting a decision</a>
+  <a href="/history?flag=RED"><strong>{{ summary.price_review }}</strong>price needs review</a>
+  <a href="/history"><strong>{{ summary.identity_review }}</strong>identity needs review</a>
+</div>
 <form method="get" action="/history" class="card">
   <label>Search by VIN <input name="q" value="{{ q }}" maxlength="17" autocapitalize="characters" class="mono" placeholder="Full or part of a VIN"></label>
   <label>Flag

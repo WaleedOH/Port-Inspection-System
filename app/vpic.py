@@ -79,6 +79,7 @@ def parse_vpic_response(payload: dict) -> dict:
 def decode_offline(vin: str) -> dict:
     decoded = parse_vpic_response({"Results": [offline_vin.decode(vin)]})
     decoded["source"] = f"The app's own vehicle database (NHTSA data of {offline_vin.data_date()})"
+    decoded["versions"] = list(offline_vin.model_versions(vin))
     return decoded
 
 

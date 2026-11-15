@@ -8,6 +8,7 @@
   <label>VIN
     <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono" placeholder="Scan or type the 17 characters">
   </label>
+  <p class="muted" id="vinCount" aria-live="polite"></p>
   <div class="row">
     <button class="btn" type="button" id="scanBtn">Scan barcode</button>
     <button class="btn primary" type="button" id="lookupBtn">Look up</button>
@@ -19,7 +20,7 @@
 
   <div class="card" id="vehicleCard" hidden>
     <h2 id="vehicleTitle"></h2>
-    <dl id="specList"></dl>
+    <p id="vehicleSummary"></p>
     <p class="muted" id="vehicleSource"></p>
   </div>
 
@@ -53,7 +54,19 @@
     <label id="rateRow" hidden>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
       <input id="rate" inputmode="decimal">
     </label>
-    <button class="btn primary" type="button" id="saveBtn">Compare and save</button>
+    <div class="flag" id="verdict" aria-live="polite" hidden></div>
+    <button class="btn primary" type="button" id="saveBtn">Save this check</button>
+  </div>
+
+  <div class="card" id="inspectCard" hidden>
+    <h2>Inspect the vehicle <span class="muted">(optional)</span></h2>
+    <p class="muted" id="checkHint">Compare each line with the actual vehicle and tap what you see. Badges and trim parts can be swapped; these come from the VIN and cannot.</p>
+    <ul class="checklist" id="specList"></ul>
+    <div id="versionsBox" hidden>
+      <h2>Versions of this model that year</h2>
+      <ul class="versions" id="versionList"></ul>
+      <p class="muted" id="versionNote"></p>
+    </div>
   </div>
 
   <details class="card">
@@ -83,17 +96,28 @@
     </div>
     <label>Seller <input id="seller" autocomplete="off"></label>
     <label>Buyer <input id="buyer" autocomplete="off"></label>
-    <label>Does the vehicle in front of you match the VIN details?
-      <select id="physical">
-        {% for key, label in physical_checks.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
-      </select>
-    </label>
     <label>Use a different reference value ({{ settings.base_currency }}) <input id="market" inputmode="decimal"></label>
     <label>Where does that value come from? <input id="source"></label>
     <label>Notes <textarea id="notes" rows="3"></textarea></label>
     <button class="btn" type="button" id="relookBtn">Look up again with these details</button>
   </details>
 </div>
+
+{% if recent %}
+<div id="recent">
+  <h2>Recent checks</h2>
+  <ul class="list">
+    {% for c in recent %}
+    <li><a href="/checks/{{ c.id }}">
+      <span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>
+      <span class="grow"><span class="mono">{{ c.vin }}</span><br>
+        <span class="muted">{{ c.created_at[:16] }} · {{ c.decoded_year or c.doc_year or '' }} {{ c.decoded_make or c.doc_make or '' }} {{ c.decoded_model or c.doc_model or '' }}</span><br>
+        <span>{{ c.flag_label }}{% if c.identity_review %} · identity needs review{% endif %}</span></span>
+    </a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 <div id="scanner" class="scanner" role="dialog" aria-label="Scan VIN barcode" hidden>
   <video id="scanVideo" playsinline muted></video>

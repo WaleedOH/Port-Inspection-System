@@ -61,6 +61,16 @@
     <dt>VIN decodes to</dt><dd>{% if c.decoded_make %}{{ c.decoded_year or '' }} {{ c.decoded_make }} {{ c.decoded_model or '(model not in database)' }}{% else %}Not decoded{% endif %}</dd>
     {% for label, value in specs.items() %}<dt>Built as: {{ label | lower }}</dt><dd>{{ value }}</dd>{% endfor %}
     <dt>Physical check</dt><dd>{{ physical_checks.get(c.physical_check, 'Not recorded') }}</dd>
+  </dl>
+  {% if ticks %}
+  <ul class="marks">
+    {% for label, state in ticks.items() %}
+    <li><span class="{{ 'bad' if state == 'differs' else 'good' }}">{{ 'Differs' if state == 'differs' else 'Matches' }}:</span>
+      {{ label }}{% if specs.get(label) %} (VIN says {{ specs[label] }}){% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <dl>
     {% if c.mileage is not none %}<dt>Mileage</dt><dd>{{ '{:,}'.format(c.mileage) }}</dd>{% endif %}
     {% if c.incoterm %}<dt>Delivery term</dt><dd>{{ c.incoterm }}</dd>{% endif %}
     <dt>Seller</dt><dd>{{ c.seller or 'n/a' }}</dd>
@@ -69,6 +79,9 @@
   {% if c.physical_check == 'differs' %}<p class="note bad">The inspector recorded that the vehicle does not match the details in its VIN.</p>{% endif %}
   {% for line in (c.mismatch_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
   {% for line in (c.vin_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
+  {% for label, name, seen in parties %}{% if seen %}
+  <p class="note {{ 'warn' if seen.flagged else '' }}">{{ label }} "{{ name }}" appears in {{ seen.total }} earlier check{{ '' if seen.total == 1 else 's' }}{% if seen.flagged %}, {{ seen.flagged }} of which needed review{% endif %}. <a href="/history">See history</a></p>
+  {% endif %}{% endfor %}
   {% if previous %}
   <p class="note warn">This VIN was checked before:
     {% for p in previous %}<a href="/checks/{{ p.id }}">#{{ p.id }}</a> ({{ p.created_at[:10] }}, {{ '{:,.0f}'.format(p.declared_price) }} {{ p.currency }}){{ ', ' if not loop.last }}{% endfor %}</p>

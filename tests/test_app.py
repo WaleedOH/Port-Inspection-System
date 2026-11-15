@@ -19,6 +19,12 @@ def fake_vpic(monkeypatch):
         "clean": True, "message": None})
 
 
+@pytest.fixture
+def own_database(monkeypatch):
+    """Use the app's real built-in vehicle database instead of the stand-in."""
+    monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: vpic.decode_offline(vin))
+
+
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as c:
@@ -305,3 +311,63 @@ def test_one_step_lookup_with_a_bad_vin(logged_in):
     r = logged_in.post("/api/lookup", json={"vin": "1HGCM82633A00435O"}).json()
     assert not r["validation"]["ok"] and r["value"] is None and r["decoded"] is None
     assert logged_in.post("/api/lookup", json={"vin": ""}).json()["validation"]["errors"] == ["VIN is empty."]
+
+
+# ---------- going further: versions, checklist, repeat parties, depreciation ----------
+def test_versions_of_the_model_with_known_prices(logged_in, own_database):
+    vin = "1FAHP2FW5CG103485"                       # real 2012 Ford Taurus Limited
+    r = logged_in.post("/api/lookup", json={"vin": vin}).json()
+    names = {v["name"]: v for v in r["versions"]}
+    assert {"Limited", "SE", "SEL", "SHO"} <= set(names)
+    assert names["Limited"]["current"] and not names["SE"]["current"]
+    # Prices added per trim show the money at stake between versions.
+    for trim, msrp in (("SE", "26350"), ("SHO", "39200")):
+        logged_in.post("/prices", data={"make": "Ford", "model": "Taurus", "trim": trim, "year": "2012", "msrp": msrp})
+    names = {v["name"]: v for v in logged_in.post("/api/lookup", json={"vin": vin}).json()["versions"]}
+    assert names["SE"]["msrp"] == 26350 and names["SHO"]["msrp"] == 39200
+
+
+def test_inspection_checklist_is_saved_and_raises_identity_review(logged_in, own_database):
+    base = {"vin": "1FAHP2FW5CG103485", "declared_price": "9000", "market_value": "9000"}
+    ok = logged_in.post("/api/checks", data={**base, "physical_details": '{"Engine": "matches", "Drive": "matches"}'})
+    page = logged_in.get(ok.json()["url"]).text
+    assert "Vehicle matches the VIN details" in page and "Needs review: vehicle identity" not in page
+    bad = logged_in.post("/api/checks", data={**base, "physical_details": '{"Engine": "differs", "Drive": "matches", "x": "junk"}'})
+    page = logged_in.get(bad.json()["url"]).text
+    assert "Needs review: vehicle identity" in page and "Differs:" in page and "VIN says 3.5L 6-cyl" in page
+    assert "junk" not in page
+    # Nonsense in the checklist field is ignored, not an error.
+    assert logged_in.post("/api/checks", data={**base, "physical_details": "not json"}).status_code == 200
+
+
+def test_repeat_seller_is_pointed_out(logged_in):
+    car = {"vin": "JTHBA30G265161304", "market_value": "10000", "seller": "Blue Harbor Motors"}
+    logged_in.post("/api/checks", data={**car, "declared_price": "2000"})                     # needs review
+    logged_in.post("/api/checks", data={**car, "declared_price": "9900", "seller": " blue harbor MOTORS "})
+    third = logged_in.post("/api/checks", data={**car, "declared_price": "9800"})
+    page = logged_in.get(third.json()["url"]).text
+    assert "appears in 2 earlier checks, 1 of which needed review" in page
+
+
+def test_history_summary_and_awaiting_filter(logged_in):
+    page = logged_in.get("/history").text
+    assert "awaiting a decision" in page and "checks in total" in page
+    awaiting = logged_in.get("/history?awaiting=1").text
+    assert "JTHBA30G265161304" in awaiting          # the 2,000 declaration above, still pending
+
+
+def test_depreciation_schedule_is_configurable(logged_in, own_database):
+    form = {"green_threshold": "15", "yellow_threshold": "30", "base_currency": "USD", "exchange_rates": "EUR = 1.08"}
+    lookup = lambda: logged_in.post("/api/lookup", json={  # noqa: E731
+        "vin": "WDDPK5HA1CF016122", "new_price": "50000"}).json()["value"]["value"]
+    before = lookup()
+    bad = logged_in.post("/settings", data={**form, "depreciation": "0 = 100\n2 = 50"})
+    assert "must list every age from 0 upward" in bad.text
+    # An official flat schedule: every used car keeps exactly half, mileage ignored.
+    logged_in.post("/settings", data={**form, "depreciation": "0 = 100\n1 = 50"})
+    assert lookup() == 25000 != before
+    assert "1 = 50" in logged_in.get("/settings").text
+    default = "\n".join(f"{i} = {v}" for i, v in enumerate(
+        [100, 82, 74, 66, 60, 54, 48, 44, 39, 35, 32, 29, 26, 23, 21, 19, 17, 15, 14, 12, 11, 10]))
+    logged_in.post("/settings", data={**form, "depreciation": default, "adjust_for_mileage": "1"})
+    assert lookup() == before

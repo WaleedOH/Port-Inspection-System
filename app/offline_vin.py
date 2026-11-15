@@ -161,3 +161,65 @@ def decode(vin: str) -> dict:
     row["ErrorCode"] = ",".join(codes) or "0"
     row["ErrorText"] = "; ".join(texts) or "VIN decoded from the app's own vehicle database"
     return row
+
+
+# ---------- other versions (trims) of the same model and year ----------
+_CHASSIS_CODE = re.compile(r"(?=(?:.*\d){2})(?=(?:.*[A-Za-z]){2})[A-Za-z0-9]{5,}")
+
+
+def _example(keys: str, target: str) -> str:
+    """Build an example of what a pattern matches, borrowing unknown
+    characters from the VIN being checked."""
+    out, i, pos = [], 0, 0
+    while i < len(keys) and pos < len(target):
+        ch = keys[i]
+        if ch == "*":
+            out.append(target[pos])
+        elif ch == "#":
+            out.append(target[pos] if target[pos].isdigit() else "0")
+        elif ch == "[":
+            end = keys.find("]", i)
+            if end == -1:
+                break
+            options = keys[i + 1:end]
+            out.append(target[pos] if re.fullmatch(keys[i:end + 1], target[pos]) else options[0])
+            i = end
+        else:
+            out.append(ch)
+        i += 1
+        pos += 1
+    return "".join(out) + target[pos:]
+
+
+@lru_cache(maxsize=512)
+def model_versions(vin: str) -> tuple[str, ...]:
+    """Names of the versions (trims) the same model was built in that year,
+    e.g. ('SLE-1', 'SLT-1', 'Denali'). Empty when the data has none."""
+    wmis = _wmi_rows(vin)
+    base = decode(vin)
+    if not wmis or not base.get("Model") or not base.get("ModelYear"):
+        return ()
+    year = int(base["ModelYear"])
+    wmi_ids = [w["id"] for w in wmis]
+    marks = ",".join("?" for _ in wmi_ids)
+    db = _db()
+    schemas = [r["schema_id"] for r in db.execute(
+        f"SELECT schema_id FROM wmi_schema WHERE wmi_id IN ({marks}) AND year_from <= ? "
+        "AND (year_to IS NULL OR year_to >= ?)", (*wmi_ids, year, year))]
+    if not schemas:
+        return ()
+    schema_marks = ",".join("?" for _ in schemas)
+    rows = db.execute(f"SELECT keys, field, value FROM pattern WHERE schema_id IN ({schema_marks}) "
+                      "AND field IN ('Model', 'Trim', 'Series')", schemas).fetchall()
+    models = [(*_matcher(r["keys"]), r["value"]) for r in rows if r["field"] == "Model"]
+    target = vin[3:8] + "|" + vin[9:17]
+    names: dict[str, str] = {}
+    for r in rows:
+        if r["field"] == "Model" or _CHASSIS_CODE.fullmatch(r["value"].strip()):
+            continue
+        example = _example(r["keys"], target)
+        best = max(((specific, value) for regex, specific, value in models if regex.match(example)),
+                   default=(0, None))
+        if best[1] == base["Model"]:
+            names.setdefault(r["value"].strip().lower(), r["value"].strip())
+    return tuple(sorted(names.values(), key=str.lower))

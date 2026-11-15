@@ -6,7 +6,7 @@ To add a real provider later:
   2. Add one line to PROVIDERS below.
   3. Set PRICING_PROVIDER=yourprovider.
 """
-from .. import config
+from .. import config, db
 from .base import MarketValue, PricingProvider
 from .mock import MockPricingProvider
 
@@ -19,6 +19,10 @@ def get_provider() -> PricingProvider:
     name = config.PRICING_PROVIDER()
     if name not in PROVIDERS:
         raise ValueError(f"Unknown PRICING_PROVIDER '{name}'. Options: {', '.join(PROVIDERS)}")
+    if name == "mock":
+        settings = db.get_settings()
+        return MockPricingProvider(schedule=settings["depreciation"],
+                                   adjust_for_mileage=settings["adjust_for_mileage"])
     return PROVIDERS[name]()
 
 

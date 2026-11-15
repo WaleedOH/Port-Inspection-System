@@ -11,6 +11,11 @@
     <input name="green_threshold" inputmode="decimal" value="{{ '%g' | format(settings.green_threshold) }}" {{ 'disabled' if not is_admin }}></label>
   <label>YELLOW up to this % below market (anything lower is RED)
     <input name="yellow_threshold" inputmode="decimal" value="{{ '%g' | format(settings.yellow_threshold) }}" {{ 'disabled' if not is_admin }}></label>
+  <h2>Depreciation schedule</h2>
+  <label>Share of the new price a vehicle keeps at each age, one line per year: <span class="mono">age = percent</span>. Older vehicles use the last line.
+    <textarea name="depreciation" rows="8" class="mono" {{ 'disabled' if not is_admin }}>{{ schedule_text }}</textarea></label>
+  <label class="check"><input type="checkbox" name="adjust_for_mileage" value="1" {{ 'checked' if settings.adjust_for_mileage }} {{ 'disabled' if not is_admin }}> Also adjust for mileage (up to 20% either way)</label>
+  <p class="muted">The starting figures are samples. Replace them with your customs authority's official depreciation schedule, so the expected price follows your own rules.</p>
   <h2>Currencies</h2>
   <label>Base currency (market values are in this currency)
     <input name="base_currency" maxlength="3" value="{{ settings.base_currency }}" {{ 'disabled' if not is_admin }}></label>

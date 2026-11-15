@@ -63,6 +63,10 @@ DEFAULT_SETTINGS = {
     "green_threshold": DEFAULT_GREEN_THRESHOLD,
     "yellow_threshold": DEFAULT_YELLOW_THRESHOLD,
     "base_currency": "USD",
+    # Share of the new price kept at each age in years (0 = new). SAMPLE values:
+    # replace with your customs authority's official depreciation schedule.
+    "depreciation": [100, 82, 74, 66, 60, 54, 48, 44, 39, 35, 32, 29, 26, 23, 21, 19, 17, 15, 14, 12, 11, 10],
+    "adjust_for_mileage": True,
     # How many units of base currency 1 unit of each currency is worth.
     # SAMPLE NUMBERS ONLY: replace them with your customs authority's official rates.
     "exchange_rates": {"USD": 1.0, "EUR": 1.08, "GBP": 1.27, "JPY": 0.0066,
@@ -161,6 +165,7 @@ NEW_COLUMNS = {
         "doc_trim": "TEXT", "decoded_trim": "TEXT", "decoded_specs": "TEXT",
         "physical_check": "TEXT NOT NULL DEFAULT 'not_done'",
         "identity_review": "INTEGER NOT NULL DEFAULT 0",
+        "physical_details": "TEXT",
     },
     # verified = 0 for prices found by online search that nobody has confirmed yet.
     "price_book": {"verified": "INTEGER NOT NULL DEFAULT 1"},
@@ -268,8 +273,10 @@ def get_check(check_id: int):
         return conn.execute("SELECT * FROM checks WHERE id = ?", (check_id,)).fetchone()
 
 
-def list_checks(vin_query: str = "", flag: str = "", limit: int | None = 200):
+def list_checks(vin_query: str = "", flag: str = "", limit: int | None = 200, awaiting: bool = False):
     sql, params = "SELECT * FROM checks WHERE 1=1", []
+    if awaiting:   # needs review and nobody has decided yet
+        sql += " AND decision = 'pending' AND (flag IN ('YELLOW', 'RED') OR identity_review = 1)"
     if vin_query:
         # Escape % and _ so they are searched literally.
         like = vin_query.upper().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -388,3 +395,30 @@ def peer_declarations(vin_pattern: str | None, exclude_id: int):
             "WHERE substr(vin, 1, 8) || substr(vin, 10, 1) = ? AND length(vin) = 17 "
             "AND id != ? AND declared_base IS NOT NULL ORDER BY id DESC LIMIT 200",
             (vin_pattern, exclude_id)).fetchall()
+
+
+# ---------- patterns across checks ----------
+def party_history(column: str, name: str, exclude_id: int) -> dict | None:
+    """How often the same seller or buyer appeared before, and how often those
+    checks needed review. A repeat pattern is a risk signal, not proof."""
+    assert column in ("seller", "buyer")
+    if not (name or "").strip():
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS total, "
+            f"COALESCE(SUM(CASE WHEN flag IN ('YELLOW', 'RED') OR identity_review = 1 THEN 1 ELSE 0 END), 0) AS flagged "
+            f"FROM checks WHERE lower(trim({column})) = ? AND id != ?",
+            (name.strip().lower(), exclude_id)).fetchone()
+    return {"total": row["total"], "flagged": row["flagged"]} if row["total"] else None
+
+
+def summary() -> dict:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(CASE WHEN flag IN ('YELLOW', 'RED') THEN 1 ELSE 0 END), 0) AS price_review, "
+            "COALESCE(SUM(identity_review), 0) AS identity_review, "
+            "COALESCE(SUM(CASE WHEN decision = 'pending' AND (flag IN ('YELLOW', 'RED') OR identity_review = 1) "
+            "THEN 1 ELSE 0 END), 0) AS awaiting FROM checks").fetchone()
+    return dict(row)

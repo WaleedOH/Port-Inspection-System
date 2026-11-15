@@ -371,3 +371,10 @@ def test_depreciation_schedule_is_configurable(logged_in, own_database):
         [100, 82, 74, 66, 60, 54, 48, 44, 39, 35, 32, 29, 26, 23, 21, 19, 17, 15, 14, 12, 11, 10]))
     logged_in.post("/settings", data={**form, "depreciation": default, "adjust_for_mileage": "1"})
     assert lookup() == before
+
+
+def test_scripts_and_styles_carry_a_version_so_phones_load_updates(logged_in):
+    from app.main import ASSET_VERSION
+    page = logged_in.get("/").text
+    assert f'/static/app.js?v={ASSET_VERSION}"' in page and f'/static/style.css?v={ASSET_VERSION}"' in page
+    assert logged_in.get(f"/static/app.js?v={ASSET_VERSION}").status_code == 200

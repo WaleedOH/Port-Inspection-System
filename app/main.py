@@ -3,6 +3,7 @@
 Run it with:  uvicorn app.main:app --reload
 """
 import csv
+import hashlib
 import io
 import json
 import os
@@ -30,6 +31,18 @@ from .vin import validate_vin, vin_pattern
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
+
+
+def _asset_version() -> str:
+    """A short fingerprint of our own scripts and styles. It is added to their
+    web addresses, so a phone never keeps running an old copy after an update."""
+    digest = hashlib.sha1()
+    for path in sorted((HERE / "static").glob("*.*")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
 DECISIONS = {"pending": "Pending", "cleared": "Cleared, no action",
              "referred": "Referred for valuation review"}
 PHYSICAL_CHECKS = {"not_done": "Vehicle not compared yet",
@@ -106,6 +119,7 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
                    flag_labels=FLAG_LABELS, decisions=DECISIONS, physical_checks=PHYSICAL_CHECKS,
+                   v=ASSET_VERSION,
                    ephemeral=config.is_ephemeral(), needs_setup=not _ready)
     return templates.TemplateResponse(request, name, context)
 

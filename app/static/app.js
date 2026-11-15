@@ -256,16 +256,17 @@
   // ---------- step 3: market value ----------
   $("lookupBtn").addEventListener("click", async () => {
     const box = $("lookupResult");
-    box.replaceChildren(note("", "Looking up"));
+    box.replaceChildren(note("", "Searching our own data, then online sources if needed. This can take up to a minute."));
+    $("lookupBtn").disabled = true;
     try {
       const r = await postJson("/api/market-value", {
         vin: $("vin").value, make: $("make").value, model: $("model").value,
         year: $("year").value, mileage: $("mileage").value, new_price: $("newPrice").value,
         trim: $("trim").value });
       if (!r.found) {
-        box.replaceChildren(note("warn", $("year").value
-          ? "No price is on file for this vehicle. Enter the manufacturer's price when new above and tap again, or type a market value below."
-          : "Enter the vehicle's year on the previous step first."));
+        const why = !$("year").value ? "Enter the vehicle's year on the previous step first."
+          : (r.note || "No price is stored for this vehicle" + (r.searches_online ? "." : ", and online search is switched off."));
+        box.replaceChildren(note("warn", why + " You can enter the manufacturer's price when new above, or type a market value below."));
         return;
       }
       const v = r.value;
@@ -277,6 +278,8 @@
         `About ${money(v.value)} ${v.currency} today (typical range ${money(v.low)} to ${money(v.high)}). ${v.source}.`));
     } catch (error) {
       box.replaceChildren(note("bad", error.message));
+    } finally {
+      $("lookupBtn").disabled = false;
     }
   });
   ["market", "source"].forEach((id) => $(id).addEventListener("input", () => { useProvider = false; }));

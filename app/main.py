@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, vpic
+from . import config, db, research, vpic
 from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
@@ -233,22 +233,44 @@ async def vin_check(request: Request):
 
 
 def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | None,
-                  new_price: float | None, trim: str = ""):
-    """Ask the pricing provider. The manufacturer's price when new comes from,
-    in order: the inspector (typed in), our own price book, then NHTSA."""
-    source = "entered by inspector"
+                  new_price: float | None, trim: str = "", user: str = "system"):
+    """Find a value for the vehicle. Returns (value or None, note for the inspector).
+
+    The manufacturer's price when new is looked for in this order:
+      1. typed in by the inspector for this check;
+      2. OUR OWN stored data: the price book, then the vehicle database;
+      3. ONLINE search (if switched on). What it finds is saved in the price
+         book with its web sources, so step 2 answers next time.
+    """
+    source, note = "entered by inspector", ""
+    pattern = vin_pattern(vin)
+    decoded = vpic.decode_vin(validate_vin(vin).vin) if pattern else {}
     if not new_price:
-        entry = db.find_price(vin_pattern(vin), make, model, year, trim)
+        entry = db.find_price(pattern, make, model, year, trim)
         if entry:
             new_price = entry["msrp"]
             source = (f"from our price book, matched by {entry['matched_by']}; "
                       f"added by {entry['added_by']} on {entry['added_at'][:10]}")
-    if not new_price:
-        result = validate_vin(vin)
-        decoded = vpic.decode_vin(result.vin) if result.is_standard else {}
-        new_price, source = decoded.get("base_price"), "from NHTSA"
-    return get_provider().get_value(vin=vin, make=make, model=model, year=year, mileage=mileage,
-                                    new_price=new_price, new_price_source=source)
+            if not entry["verified"]:
+                source += "; found online, not yet confirmed"
+    if not new_price and decoded.get("base_price"):
+        new_price, source = decoded["base_price"], "from our vehicle database"
+    if not new_price and research.enabled() and make and model and year:
+        details = ", ".join(f"{k}: {v}" for k, v in (decoded.get("specs") or {}).items())
+        found, note = research.find_msrp(year=year, make=make, model=model,
+                                         trim=trim or decoded.get("trim") or "", details=details)
+        if found:
+            new_price = found.msrp
+            where = ", ".join(urlparse(u).netloc for u in found.urls)
+            source = f"found online just now ({where}); saved to our price book, not yet confirmed"
+            if not found.trim_matched:
+                source += "; price is for the base model, not this exact trim"
+            db.add_price(make=make, model=model, trim=trim, year=year, msrp=found.msrp,
+                         vin_pattern=pattern, added_by=user, verified=False,
+                         source=f"Found online: {' '.join(found.urls)}. {found.note}")
+    value = get_provider().get_value(vin=vin, make=make, model=model, year=year, mileage=mileage,
+                                     new_price=new_price, new_price_source=source)
+    return value, note
 
 
 @app.post("/api/market-value")
@@ -260,9 +282,10 @@ async def market_value(request: Request):
         new_price = float(str(body["new_price"]).replace(",", "")) if body.get("new_price") not in (None, "") else None
     except (TypeError, ValueError):
         raise HTTPException(422, "Year, mileage and price must be numbers.")
-    value = _lookup_value(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
-                          year, mileage, new_price, body.get("trim") or "")
-    return {"found": value is not None, "value": value.to_dict() if value else None}
+    value, note = _lookup_value(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
+                                year, mileage, new_price, body.get("trim") or "", request.session["user"])
+    return {"found": value is not None, "value": value.to_dict() if value else None, "note": note,
+            "searches_online": research.enabled()}
 
 
 def _decode_notes(decoded: dict) -> list[str]:
@@ -318,9 +341,9 @@ async def create_check(
     market = _number(market_value, "Market value")
     if use_provider == "1":
         # Ask the provider again on the server instead of trusting the browser.
-        found = _lookup_value(validation["vin"], make, model, int(year_n or 0),
-                              int(mileage_n) if mileage_n is not None else None,
-                              _number(new_price, "Manufacturer's price"), trim)
+        found, _ = _lookup_value(validation["vin"], make, model, int(year_n or 0),
+                                 int(mileage_n) if mileage_n is not None else None,
+                                 _number(new_price, "Manufacturer's price"), trim, request.session["user"])
         if found:
             market, low, high, market_source = found.value, found.low, found.high, found.source
     elif market is not None:
@@ -349,7 +372,7 @@ async def create_check(
         "declared_price": price, "currency": currency, "exchange_rate": rate, "base_currency": base,
         "declared_base": result.declared_base, "market_value": result.market_value,
         "market_low": low, "market_high": high,
-        "market_source": market_source.strip()[:300] if result.market_value else None,
+        "market_source": market_source.strip()[:400] if result.market_value else None,
         "diff_pct": result.diff_pct, "flag": result.flag, "flag_label": result.label,
         "explanation": "\n".join(result.explanation),
         "green_threshold": settings["green_threshold"], "yellow_threshold": settings["yellow_threshold"],
@@ -528,6 +551,13 @@ async def import_prices(request: Request, file: UploadFile = File(...)):
     return _prices_page(request, message=note)
 
 
+@app.post("/prices/{price_id}/confirm")
+def confirm_price(request: Request, price_id: int):
+    require_admin(request)
+    db.confirm_price(price_id)
+    return _prices_page(request, message="Price confirmed.")
+
+
 @app.post("/prices/{price_id}/delete")
 def remove_price(request: Request, price_id: int):
     require_admin(request)
@@ -541,7 +571,7 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
     rates_text = "\n".join(f"{code} = {rate:g}" for code, rate in settings["exchange_rates"].items())
     return page(request, "settings.html", settings=settings, rates_text=rates_text, error=error,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
-                decoder=vpic.decoder_name())
+                decoder=vpic.decoder_name(), research_on=research.enabled())
 
 
 @app.get("/settings")

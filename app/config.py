@@ -56,8 +56,11 @@ def cookie_secure() -> bool:
 
 DOCUMENT_READER = lambda: os.environ.get("DOCUMENT_READER", "browser-ocr")  # noqa: E731
 PRICING_PROVIDER = lambda: os.environ.get("PRICING_PROVIDER", "mock")  # noqa: E731
-# "offline" = the app's own vehicle database (default, no internet needed)
+# "offline" = the app's own vehicle database only (no internet needed)
 # "online"  = ask the NHTSA service every time
-# "both"    = own database first, NHTSA only when it has no details
-VIN_DECODER = lambda: os.environ.get("VIN_DECODER", "offline")  # noqa: E731
+# "both"    = own database first, NHTSA only when it has no details (default)
+VIN_DECODER = lambda: os.environ.get("VIN_DECODER", "both")  # noqa: E731
+# "off" (default) or "claude": search the web for a manufacturer's price that
+# is not in our own data yet. Needs ANTHROPIC_API_KEY.
+PRICE_RESEARCH = lambda: os.environ.get("PRICE_RESEARCH", "off")  # noqa: E731
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB per photo

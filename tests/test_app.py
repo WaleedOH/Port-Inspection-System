@@ -151,12 +151,12 @@ def test_value_estimated_from_manufacturer_price(logged_in, monkeypatch):
     # Inspector types the MSRP: an estimate comes back.
     r = logged_in.post("/api/market-value", json={**body, "new_price": "31,300"}).json()
     assert r["found"] and "entered by inspector" in r["value"]["source"]
-    # NHTSA has a base price for this VIN: it is used automatically.
+    # Our vehicle database has a base price for this VIN: it is used automatically.
     monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
         "available": True, "make": "MINI", "model": "Cooper", "year": 2006, "base_price": 17450.0,
         "clean": True, "message": None})
     r = logged_in.post("/api/market-value", json={"vin": VIN, "make": "MINI", "model": "Cooper", "year": "2006"}).json()
-    assert r["found"] and "17,450 USD, from NHTSA" in r["value"]["source"]
+    assert r["found"] and "17,450 USD, from our vehicle database" in r["value"]["source"]
     # And the saved check records where the value came from.
     saved = logged_in.post("/api/checks", data={"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012",
                                                 "declared_price": "500", "use_provider": "1", "new_price": "31300"})

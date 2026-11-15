@@ -18,7 +18,9 @@
       <span>{{ '{:,.0f}'.format(p.msrp) }} {{ base }}</span>
       {% if p.vin_pattern %}<span class="muted mono"> · VIN {{ p.vin_pattern[:8] }}*{{ p.vin_pattern[8] }}</span>{% endif %}<br>
       <span class="muted">{{ p.source or 'No source given' }} · {{ p.added_by }}, {{ p.added_at[:10] }}</span>
+      {% if not p.verified %}<br><strong>Found online, not yet confirmed</strong>{% endif %}
     </span>
+    {% if is_admin and not p.verified %}<form method="post" action="/prices/{{ p.id }}/confirm"><button class="link" type="submit">Confirm</button></form>{% endif %}
     {% if is_admin %}<form method="post" action="/prices/{{ p.id }}/delete"><button class="link" type="submit">Remove</button></form>{% endif %}
   </div></li>
   {% endfor %}

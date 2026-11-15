@@ -78,19 +78,24 @@ def connect():
 
 # Columns added after the first version. Existing databases get them on start-up.
 NEW_COLUMNS = {
-    "doc_trim": "TEXT", "decoded_trim": "TEXT", "decoded_specs": "TEXT",
-    "physical_check": "TEXT NOT NULL DEFAULT 'not_done'",
-    "identity_review": "INTEGER NOT NULL DEFAULT 0",
+    "checks": {
+        "doc_trim": "TEXT", "decoded_trim": "TEXT", "decoded_specs": "TEXT",
+        "physical_check": "TEXT NOT NULL DEFAULT 'not_done'",
+        "identity_review": "INTEGER NOT NULL DEFAULT 0",
+    },
+    # verified = 0 for prices found by online search that nobody has confirmed yet.
+    "price_book": {"verified": "INTEGER NOT NULL DEFAULT 1"},
 }
 
 
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
-        existing = {row["name"] for row in conn.execute("PRAGMA table_info(checks)")}
-        for name, kind in NEW_COLUMNS.items():
-            if name not in existing:
-                conn.execute(f"ALTER TABLE checks ADD COLUMN {name} {kind}")
+        for table, columns in NEW_COLUMNS.items():
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns.items():
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
 
 # ---------- passwords and users ----------
@@ -228,13 +233,14 @@ def _key(text: str | None) -> str:
 
 
 def add_price(*, make: str, model: str, year: int, msrp: float, added_by: str,
-              trim: str = "", vin_pattern: str | None = None, source: str = "") -> int:
+              trim: str = "", vin_pattern: str | None = None, source: str = "",
+              verified: bool = True) -> int:
     with connect() as conn:
         cur = conn.execute(
             "INSERT INTO price_book (vin_pattern, make, model, trim, year, make_key, model_key, "
-            "msrp, source, added_by, added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "msrp, source, added_by, added_at, verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (vin_pattern, make.strip(), model.strip(), trim.strip(), year, _key(make), _key(model),
-             msrp, source.strip()[:200], added_by, now()))
+             msrp, source.strip()[:500], added_by, now(), int(verified)))
         return cur.lastrowid
 
 
@@ -270,6 +276,11 @@ def list_prices(query: str = "", limit: int = 300):
 def count_prices() -> int:
     with connect() as conn:
         return conn.execute("SELECT COUNT(*) FROM price_book").fetchone()[0]
+
+
+def confirm_price(price_id: int) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE price_book SET verified = 1 WHERE id = ?", (price_id,))
 
 
 def delete_price(price_id: int) -> None:

@@ -26,8 +26,9 @@
     <dt>VIN decoder</dt><dd>{{ decoder }}</dd>
     <dt>Photo reader</dt><dd>{{ reader.name }}</dd>
     <dt>Pricing</dt><dd>{{ provider.name }}</dd>
+    <dt>Online price search</dt><dd>{{ 'On: used only when our own data has no price' if research_on else 'Off' }}</dd>
   </dl>
-  <p class="muted">These are chosen with the VIN_DECODER, DOCUMENT_READER and PRICING_PROVIDER environment variables (see the README).</p>
+  <p class="muted">These are chosen with the VIN_DECODER, DOCUMENT_READER, PRICING_PROVIDER and PRICE_RESEARCH environment variables (see the README).</p>
 </div>
 
 {% if is_admin %}

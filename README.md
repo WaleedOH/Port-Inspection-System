@@ -69,7 +69,8 @@ No password or API key is ever written in the code. They are read from environme
 | `SECRET_KEY` | Signs the login cookies | generated and kept in the data folder |
 | `COOKIE_SECURE` | Set to `1` when served over HTTPS | `0` |
 | `DATA_DIR` | Folder for the database and photos | `data` |
-| `VIN_DECODER` | `offline` (own database), `online` or `both` | `offline` |
+| `VIN_DECODER` | `both` (own database, then NHTSA), `offline` or `online` | `both` |
+| `PRICE_RESEARCH` | `off`, or `claude` to search the web for missing prices | `off` |
 | `DOCUMENT_READER` | `browser-ocr` or `claude` | `browser-ocr` |
 | `PRICING_PROVIDER` | `mock` | `mock` |
 
@@ -93,6 +94,17 @@ app/
 tests/
 ```
 
+### How a lookup works: own data first, online only when needed
+
+When an inspector scans a VIN, the app answers from **its own stored data**. It goes online only for what is missing, and saves what it finds so the next lookup is local.
+
+| | 1. Own stored data | 2. Online, only if missing | Then |
+|---|---|---|---|
+| **Vehicle details** | Built-in vehicle database | NHTSA online service | Answer is kept in the app's database |
+| **Manufacturer's price** | Price book, then vehicle database | Web search (optional, see below) | Saved in the price book with its web sources, marked "found online, not yet confirmed" until an administrator confirms it |
+
+**Online price search** is off by default. To switch it on, set `PRICE_RESEARCH=claude` and `ANTHROPIC_API_KEY` (a paid Anthropic account). The app then asks Claude to search the web for the manufacturer's price of the exact year, make, model and trim. It only accepts an answer that is a sensible price **and** cites a page that really came up in the search; otherwise it reports "not found". Only the vehicle description is sent, never the VIN, seller or buyer. This step has been tested with a stand-in for the search service, not yet against the live one.
+
 ### The app's own vehicle database
 
 The app is independent: it decodes VINs by itself. `app/vehicle_data/vehicles.db.gz` (about 11 MB) is a copy of NHTSA's public vPIC data, the same data behind the NHTSA online decoder, trimmed to what the app uses. `app/offline_vin.py` reads it.
@@ -100,7 +112,7 @@ The app is independent: it decodes VINs by itself. `app/vehicle_data/vehicles.db
 - On 5,000 real VINs it returned the right make, model and year for 4,992 (99.8%), in under a millisecond each.
 - Against live NHTSA answers for the 40 real test VINs, 570 of 600 detail fields were identical. Of the 30 that differed, 27 were trim or series names filed or worded differently (for example "Denali AWD" under series instead of "Denali" under trim; the app compares against both), and 3 were an engine size or drive type missing from the copy.
 - The data is a snapshot. To refresh it for new model years, run `python scripts/build_vehicle_db.py path/to/vpic.lite.db` (the script explains where to get the file) and commit the result.
-- `VIN_DECODER=offline` is the default. `online` asks the NHTSA service instead; `both` uses the built-in database first and NHTSA only when it has no details.
+- `VIN_DECODER=both` is the default: the built-in database first, and the NHTSA online service only when it has no details. `offline` never goes online; `online` always asks NHTSA.
 
 Like NHTSA itself, this database covers vehicles built for the US market best.
 
@@ -110,7 +122,7 @@ The price is not inside a VIN; manufacturers publish it separately for each mode
 
 - **It fills itself.** When an inspector types a manufacturer's price during a check, it is saved against the car's *VIN pattern* (characters 1–8 and 10, which identify model, trim, engine and year). Every later car with the same pattern gets that price automatically.
 - **Administrators can add prices or import a list** as a CSV file with the columns `make, model, year, msrp` and optionally `trim, vin, source`.
-- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then NHTSA.
+- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then the vehicle database, then online search if it is switched on.
 - **Every entry records who added it, when, and from what source,** and administrators can remove wrong ones. An entry typed in by mistake would affect later checks until it is removed.
 
 Each result also shows **earlier declarations at this port** for the same VIN pattern, once at least 3 other cars have been checked.

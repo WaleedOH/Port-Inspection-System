@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 import pytest
 from fastapi.testclient import TestClient
 
-from app import vpic, web_prices
+from app import db, vpic, web_prices
 from app.main import app
 
 JSON_LD_PAGE = """<html><head><title>2021 Jeep Wrangler Review, Pricing and Specs</title>
@@ -37,6 +37,7 @@ def web(monkeypatch):
     visited = []
     monkeypatch.setenv("WEB_PRICE_LOOKUP", "on")
     web_prices._robots.clear()
+    db.init()
 
     def use(pages: dict, robots: str = ""):
         class Client:
@@ -107,9 +108,9 @@ def test_lookup_is_off_in_tests_by_default():
 
 
 def test_a_single_starting_price_is_widened_by_the_next_site(web):
-    one_price = JSON_LD_PAGE.replace('"lowPrice": "28900", "highPrice": 74995', '"price": 28900')
-    web.use({"motortrend.com": (200, one_price), "caranddriver.com": (200, TEXT_PAGE)})
-    price, _ = web_prices.find("Jeep", "Wrangler", 2021)
+    one_price = JSON_LD_PAGE.replace('"lowPrice": "28900", "highPrice": 74995', '"price": 28900').replace("Wrangler", "Compass")
+    web.use({"motortrend.com": (200, one_price), "caranddriver.com": (200, TEXT_PAGE.replace("Wrangler", "Compass"))})
+    price, _ = web_prices.find("Jeep", "Compass", 2021)      # a model no other test has stored
     assert (price.low, price.high, price.site) == (28900, 74995, "MotorTrend and Car and Driver")
 
 

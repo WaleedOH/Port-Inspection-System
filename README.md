@@ -87,6 +87,7 @@ No password or API key is ever written in the code. They are read from environme
 | `DATABASE_URL` | PostgreSQL address for permanent storage; empty = SQLite file | empty |
 | `DATA_DIR` | Folder for the SQLite file | `data` |
 | `VIN_DECODER` | `both` (own database, then NHTSA), `offline` or `online` | `both` |
+| `WEB_PRICE_LOOKUP` | `on` to read public car-price pages for missing models, or `off` | `on` |
 | `PRICE_RESEARCH` | `off`, or `claude` to search the web for missing prices | `off` |
 | `DOCUMENT_READER` | `browser-ocr` or `claude` | `browser-ocr` |
 | `PRICING_PROVIDER` | `mock` | `mock` |
@@ -138,9 +139,18 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 | | 1. Own stored data | 2. Online, only if missing | Then |
 |---|---|---|---|
 | **Vehicle details** | Built-in vehicle database | NHTSA online service | Answer is kept in the app's database |
-| **Manufacturer's price** | Price book, vehicle database, then the built-in reference price list | Web search (optional, see below) | Saved in the price book with its web sources, marked "found online, not yet confirmed" until an administrator confirms it |
+| **Manufacturer's price** | Price book, vehicle database, built-in price list, prices already found online | Public car-price pages (automatic, see below) | Saved in the price book with its web sources, marked "found online, not yet confirmed" until an administrator confirms it |
 
-**Online price search** is off by default. To switch it on, set `PRICE_RESEARCH=claude` and `ANTHROPIC_API_KEY` (a paid Anthropic account). The app then asks Claude to search the web for the manufacturer's price of the exact year, make, model and trim. It only accepts an answer that is a sensible price **and** cites a page that really came up in the search; otherwise it reports "not found". Only the vehicle description is sent, never the VIN, seller or buyer. This step has been tested with a stand-in for the search service, not yet against the live one.
+**Automatic web lookup** is on by default and needs no key or account. When the stored data has no price for a car's exact model year, the app reads a public car-information page for that make, model and year (MotorTrend, then Car and Driver), takes the manufacturer's price range from it, and saves it in the `web_prices` table. The next car of that model is answered from the database.
+
+- It accepts a price only from a page whose title names that model and year, and only if it is a plausible car price.
+- It identifies itself honestly, obeys each site's `robots.txt`, and asks about each model and year once. Sites that refuse automated visitors are not used.
+- Only make, model and year are sent, never a VIN or a name.
+- Found prices are marked "found online, not yet confirmed". Some pages give a single figure without saying which version it is for; the app says so.
+- A fixed self-test at `/healthz/price-sources` shows which sources work from the server. In a live run it found prices for 4 of 6 sample cars; it found none for a 2012 BMW 328i or for a Nissan Patrol, which is not sold in the US.
+- Set `WEB_PRICE_LOOKUP=off` to keep the app fully offline. Check the sites' terms of use before relying on this in a commercial product.
+
+**Online price search with Claude** is a separate, optional step and is off by default. To switch it on, set `PRICE_RESEARCH=claude` and `ANTHROPIC_API_KEY` (a paid Anthropic account). The app then asks Claude to search the web for the manufacturer's price of the exact year, make, model and trim. It only accepts an answer that is a sensible price **and** cites a page that really came up in the search; otherwise it reports "not found". Only the vehicle description is sent, never the VIN, seller or buyer. This step has been tested with a stand-in for the search service, not yet against the live one.
 
 ### The app's own built-in price list
 

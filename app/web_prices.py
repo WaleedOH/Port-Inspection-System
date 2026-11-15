@@ -32,13 +32,12 @@ TIMEOUT = 7.0
 RETRY_NOT_FOUND_AFTER_DAYS = 14
 
 # Public pages that show the manufacturer's price for a model and year.
+# (Cars.com, J.D. Power and The Car Connection were tried and refuse automated
+# visitors, so they are not asked.)
 # {make}, {model} are lower-case with the given separator; {year} is 4 digits.
 SITES = [
     ("MotorTrend", "https://www.motortrend.com/cars/{make}/{model}/{year}/", "-"),
     ("Car and Driver", "https://www.caranddriver.com/{make}/{model}-{year}", "-"),
-    ("Cars.com", "https://www.cars.com/research/{make}-{model}-{year}/", "_"),
-    ("J.D. Power", "https://www.jdpower.com/cars/{year}/{make}/{model}", "-"),
-    ("The Car Connection", "https://www.thecarconnection.com/overview/{make}_{model}_{year}", "-"),
 ]
 
 
@@ -72,7 +71,9 @@ class WebPrice:
         return round((self.low + self.high) / 2, -1)
 
     def describe(self) -> str:
-        return (f"found online at {self.site} on {self.fetched_at[:10]} and saved to our data; "
+        single = ("; the page gave one figure only, and it is unclear which version it is for"
+                  if self.low == self.high else "")
+        return (f"found online at {self.site} on {self.fetched_at[:10]} and saved to our data{single}; "
                 "not yet confirmed by an administrator")
 
 

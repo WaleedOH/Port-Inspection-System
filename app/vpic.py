@@ -1,14 +1,15 @@
-"""VIN decoding with the free NHTSA vPIC API (no account or key needed).
+"""VIN decoding.
 
-Results are cached in the database so the same VIN is only looked up once.
-If the service is down or blocked, the app keeps working: the inspector
-just doesn't get the automatic comparison.
+By default the app decodes VINs with its OWN vehicle database (see
+offline_vin.py), so it needs no internet and depends on nobody. It can also
+ask the free NHTSA vPIC service; that is chosen with the VIN_DECODER setting.
+Online answers are cached so the same VIN is only looked up once.
 """
 import json
 
 import httpx
 
-from . import db
+from . import config, db, offline_vin
 
 VPIC_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
 
@@ -75,7 +76,13 @@ def parse_vpic_response(payload: dict) -> dict:
     }
 
 
-def decode_vin(vin: str, client: httpx.Client | None = None) -> dict:
+def decode_offline(vin: str) -> dict:
+    decoded = parse_vpic_response({"Results": [offline_vin.decode(vin)]})
+    decoded["source"] = f"The app's own vehicle database (NHTSA data of {offline_vin.data_date()})"
+    return decoded
+
+
+def decode_online(vin: str, client: httpx.Client | None = None) -> dict:
     cached = db.get_cached_vin(vin)
     if cached:
         return json.loads(cached)
@@ -95,5 +102,25 @@ def decode_vin(vin: str, client: httpx.Client | None = None) -> dict:
             "message": "The VIN decoding service could not be reached. "
                        "You can continue and check the vehicle details by hand.",
         }
+    decoded["source"] = "NHTSA online service"
     db.cache_vin(vin, json.dumps(decoded))
     return decoded
+
+
+def decode_vin(vin: str, client: httpx.Client | None = None) -> dict:
+    mode = config.VIN_DECODER()
+    if mode == "online" or not offline_vin.available():
+        return decode_online(vin, client)
+    decoded = decode_offline(vin)
+    if mode == "both" and not decoded["model"]:
+        online = decode_online(vin, client)
+        if online.get("available") and online.get("model"):
+            return online
+    return decoded
+
+
+def decoder_name() -> str:
+    if config.VIN_DECODER() == "online" or not offline_vin.available():
+        return "NHTSA online service"
+    extra = ", then NHTSA online" if config.VIN_DECODER() == "both" else ""
+    return f"Own vehicle database, no internet needed (NHTSA data of {offline_vin.data_date()}){extra}"

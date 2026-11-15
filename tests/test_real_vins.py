@@ -77,7 +77,7 @@ def test_make_names_are_tidied():
 @pytest.mark.parametrize("vehicle", REAL[:5], ids=IDS[:5])
 def test_live_nhtsa_decode(vehicle):
     db.init()
-    decoded = vpic.decode_vin(vehicle["vin"])
+    decoded = vpic.decode_online(vehicle["vin"])
     assert decoded["available"], decoded.get("message")
     assert decoded["year"] == vehicle["year"]
     assert decoded["make"].lower() == vehicle["make"].lower()
@@ -116,3 +116,41 @@ def test_trim_declared_lower_or_higher_than_built_is_flagged():
     assert trim_matches("SE", "SEL, TDI", None) is False
     # A chassis code alone is not a trim, so nothing is claimed.
     assert trim_matches("LE", None, "ZZE130L") is None            # real Toyota Corolla
+    # A series that is a real trim name is compared (own database stores Denali this way).
+    assert trim_matches("SLE", None, "Denali AWD") is False
+    assert trim_matches("Denali", None, "Denali AWD") is True
+
+
+# ---------- the app's own vehicle database (no internet) ----------
+@pytest.mark.parametrize("vehicle", REAL, ids=IDS)
+def test_own_database_decodes_real_vin(vehicle):
+    decoded = vpic.decode_offline(vehicle["vin"])
+    online = parse_vpic_response({"Results": [vehicle["vpic"]]})
+    assert decoded["clean"] and decoded["available"]
+    assert decoded["year"] == vehicle["year"]
+    assert decoded["make"].lower() == vehicle["make"].lower()
+    assert decoded["model"] == vehicle["model"]
+    assert "own vehicle database" in decoded["source"]
+    # Whenever the live service knows a trim or series, our own copy has one too.
+    if online["trim"] or online["series"]:
+        assert decoded["trim"] or decoded["series"]
+    assert decoded["specs"]
+
+
+def test_own_database_is_the_default_and_needs_no_internet(monkeypatch):
+    def no_internet(*args, **kwargs):
+        raise AssertionError("the app tried to use the internet")
+    monkeypatch.setattr(vpic.httpx, "Client", no_internet)
+    monkeypatch.delenv("VIN_DECODER", raising=False)
+    denali = vpic.decode_vin("2GKFLZE39D6253778")
+    assert (denali["year"], denali["make"], denali["model"]) == (2013, "GMC", "Terrain")
+    assert "Denali" in (denali["trim"] or denali["series"])
+    assert find_mismatches({"make": "GMC", "model": "Terrain", "year": 2013, "trim": "SLE"}, denali)
+    assert find_mismatches({"make": "GMC", "model": "Terrain", "year": 2013, "trim": "Denali"}, denali) == []
+
+
+def test_own_database_handles_unknown_and_altered_vins():
+    unknown = vpic.decode_offline("ZZZ11111111111111")          # no such manufacturer
+    assert unknown["model"] is None and not unknown["clean"]
+    altered = vpic.decode_offline("1HGCM82633A004353")          # wrong check digit
+    assert altered["make"] == "Honda" and "1" in altered["error_codes"]

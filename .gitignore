@@ -1,5 +1,5 @@
 # Never commit data, photos or secrets
-data/
+/data/
 .env
 __pycache__/
 *.pyc

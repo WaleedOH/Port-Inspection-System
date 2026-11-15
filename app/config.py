@@ -56,4 +56,8 @@ def cookie_secure() -> bool:
 
 DOCUMENT_READER = lambda: os.environ.get("DOCUMENT_READER", "browser-ocr")  # noqa: E731
 PRICING_PROVIDER = lambda: os.environ.get("PRICING_PROVIDER", "mock")  # noqa: E731
+# "offline" = the app's own vehicle database (default, no internet needed)
+# "online"  = ask the NHTSA service every time
+# "both"    = own database first, NHTSA only when it has no details
+VIN_DECODER = lambda: os.environ.get("VIN_DECODER", "offline")  # noqa: E731
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB per photo

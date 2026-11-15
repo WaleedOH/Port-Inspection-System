@@ -540,7 +540,8 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
     settings = db.get_settings()
     rates_text = "\n".join(f"{code} = {rate:g}" for code, rate in settings["exchange_rates"].items())
     return page(request, "settings.html", settings=settings, rates_text=rates_text, error=error,
-                saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider())
+                saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
+                decoder=vpic.decoder_name())
 
 
 @app.get("/settings")

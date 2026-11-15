@@ -21,9 +21,11 @@ def trim_matches(doc_trim: str | None, decoded_trim: str | None, decoded_series:
 
     Trim names are written many ways ('SEL, TDI', 'LS (&1LS)'), so this passes
     when any word of the paper trim appears in the VIN's trim or series."""
-    # A series alone is often a chassis code (e.g. 'ZZE130L'), not a trim name,
-    # so only compare when the VIN gives an actual trim.
-    if not (doc_trim or "").strip() or not decoded_trim:
+    # A series can be a real trim name ('Denali AWD') or a chassis code
+    # ('ZZE130L'). Chassis codes say nothing about trim, so they are ignored.
+    if decoded_series and re.fullmatch(r"(?=(?:.*\d){2})(?=(?:.*[A-Za-z]){2})[A-Za-z0-9]{5,}", decoded_series.strip()):
+        decoded_series = None
+    if not (doc_trim or "").strip() or not (decoded_trim or decoded_series):
         return None
     known = " ".join(filter(None, [decoded_trim, decoded_series]))
     if _tokens(doc_trim) & _tokens(known):

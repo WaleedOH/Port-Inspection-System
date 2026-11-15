@@ -16,6 +16,7 @@ class MarketValue:
     currency: str
     source: str             # shown to the inspector and saved with the check
     as_of: str              # date of the data
+    new_price: float | None = None  # manufacturer's price when new, if that was the basis
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()

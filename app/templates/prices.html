@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set active = 'prices' %}
+{% block content %}
+<h1>Price book</h1>
+<p class="muted">Your port's own list of manufacturer prices when new (MSRP), in {{ base }}. {{ total }} entr{{ 'y' if total == 1 else 'ies' }}. It also grows by itself: when an inspector types a manufacturer's price during a check, it is remembered for every later car with the same VIN pattern.</p>
+{% if error %}<p class="note bad" role="alert">{{ error }}</p>{% endif %}
+{% if message %}<p class="note good" role="status">{{ message }}</p>{% endif %}
+<form method="get" action="/prices" class="card">
+  <label>Search by make, model or VIN pattern <input name="q" value="{{ q }}" maxlength="40"></label>
+  <button class="btn primary" type="submit">Search</button>
+</form>
+{% if not prices %}<p class="muted">No prices found.</p>{% endif %}
+<ul class="list">
+  {% for p in prices %}
+  <li><div class="item">
+    <span class="grow">
+      <strong>{{ p.year }} {{ p.make }} {{ p.model }} {{ p.trim or '' }}</strong><br>
+      <span>{{ '{:,.0f}'.format(p.msrp) }} {{ base }}</span>
+      {% if p.vin_pattern %}<span class="muted mono"> · VIN {{ p.vin_pattern[:8] }}*{{ p.vin_pattern[8] }}</span>{% endif %}<br>
+      <span class="muted">{{ p.source or 'No source given' }} · {{ p.added_by }}, {{ p.added_at[:10] }}</span>
+    </span>
+    {% if is_admin %}<form method="post" action="/prices/{{ p.id }}/delete"><button class="link" type="submit">Remove</button></form>{% endif %}
+  </div></li>
+  {% endfor %}
+</ul>
+{% if is_admin %}
+<form method="post" action="/prices" class="card">
+  <h2>Add a price</h2>
+  <div class="row">
+    <label>Make <input name="make" required></label>
+    <label>Model <input name="model" required></label>
+  </div>
+  <div class="row">
+    <label>Trim <span class="muted">(optional)</span> <input name="trim"></label>
+    <label>Year <input name="year" inputmode="numeric" maxlength="4" required></label>
+  </div>
+  <label>Manufacturer's price when new ({{ base }}) <input name="msrp" inputmode="decimal" required></label>
+  <label>A VIN of this exact model and trim <span class="muted">(optional, gives the most reliable match)</span>
+    <input name="vin" maxlength="17" class="mono" autocapitalize="characters"></label>
+  <label>Where does this price come from? <input name="source" placeholder="e.g. manufacturer price list 2024"></label>
+  <button class="btn primary" type="submit">Add price</button>
+</form>
+<form method="post" action="/prices/import" enctype="multipart/form-data" class="card">
+  <h2>Import a price list</h2>
+  <p class="muted">A CSV file (a spreadsheet saved as CSV). The first line names the columns: <span class="mono">make, model, year, msrp</span>, and optionally <span class="mono">trim, vin, source</span>.</p>
+  <label>CSV file <input type="file" name="file" accept=".csv,text/csv" required></label>
+  <button class="btn" type="submit">Import</button>
+</form>
+{% else %}
+<p class="note">Only an administrator can add, import or remove prices.</p>
+{% endif %}
+{% endblock %}

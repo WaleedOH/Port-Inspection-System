@@ -57,6 +57,7 @@ class MockPricingProvider:
         today = self._today or date.today()
         if not year:
             return None
+        basis = new_price if new_price and new_price > 0 else None
         if new_price and new_price > 0:
             source = (f"Estimate from the manufacturer's price when new "
                       f"({new_price:,.0f} USD, {new_price_source or 'entered by inspector'}), "
@@ -68,7 +69,7 @@ class MockPricingProvider:
             return None
         value = estimate_current_value(new_price, int(year), mileage, today)
         return MarketValue(value=value, low=round(value * 0.85, -2), high=round(value * 1.15, -2),
-                           currency="USD", source=source, as_of=today.isoformat())
+                           currency="USD", source=source, as_of=today.isoformat(), new_price=basis)
 
     @staticmethod
     def _sample_price(make: str, model: str) -> float | None:

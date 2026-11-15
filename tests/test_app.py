@@ -203,3 +203,75 @@ def test_old_database_gains_the_new_columns(tmp_path, monkeypatch):
     db.init()
     row = db.get_check(1)
     assert row["physical_check"] == "not_done" and row["identity_review"] == 0 and row["doc_trim"] is None
+
+
+# ---------- the port's own price book ----------
+def test_vin_pattern():
+    from app.vin import vin_pattern
+    # Two real 2012 Ford Taurus Limited cars share a pattern; serial numbers differ.
+    assert vin_pattern("1FAHP2FW5CG103485") == "1FAHP2FWC"
+    assert vin_pattern("1FAHP2FW5CG103485") == vin_pattern("1FAHP2FW0CG999999")
+    assert vin_pattern("1FAHP2FW5DG103485") != vin_pattern("1FAHP2FW5CG103485")   # other year
+    assert vin_pattern("JZX100-0012345") is None
+
+
+def test_price_book_learns_from_inspector_and_is_reused(logged_in):
+    first, second = "1FAHP2FW5CG103485", "1FAHP2FW9CG555555"     # same model/trim/year
+    car = {"make": "Ford", "model": "Taurus", "trim": "Limited", "year": "2012"}
+    # Nothing known yet for this car.
+    assert logged_in.post("/api/market-value", json={"vin": second, **car}).json()["found"] is False
+    # Inspector types the manufacturer's price while checking the first car.
+    logged_in.post("/api/checks", data={"vin": first, **car, "declared_price": "9000",
+                                        "use_provider": "1", "new_price": "32,950"})
+    # The second car of the same pattern now gets it automatically.
+    r = logged_in.post("/api/market-value", json={"vin": second, **car}).json()
+    assert r["found"] and r["value"]["new_price"] == 32950
+    assert "from our price book, matched by VIN pattern; added by admin" in r["value"]["source"]
+    page = logged_in.get("/prices?q=taurus").text
+    assert "2012 Ford Taurus Limited" in page and "32,950" in page and "Typed in during check" in page
+    # Saving the second car does not create a duplicate entry.
+    logged_in.post("/api/checks", data={"vin": second, **car, "declared_price": "9100", "use_provider": "1"})
+    assert logged_in.get("/prices?q=taurus").text.count("2012 Ford Taurus Limited") == 1
+
+
+def test_price_book_add_import_match_and_delete(logged_in):
+    bad = logged_in.post("/prices", data={"make": "Volvo", "model": "S60", "year": "12", "msrp": "31300"})
+    assert "Not saved: year must be a 4-digit year" in bad.text
+    logged_in.post("/prices", data={"make": "Volvo", "model": "S60", "trim": "T5", "year": "2012",
+                                    "msrp": "31300", "source": "price list"})
+    # Matched by make, model and year even though this VIN was never seen.
+    r = logged_in.post("/api/market-value", json={"vin": "YV1622FS9C2117877", "make": "VOLVO",
+                                                  "model": "S-60", "year": "2012"}).json()
+    assert r["found"] and "matched by make, model and year" in r["value"]["source"]
+
+    csv_file = ("make,model,trim,year,msrp,source\n"
+                "Kia,Cadenza,Premium,2015,\"$35,100\",Kia price list\n"
+                "Kia,Cadenza,Limited,2015,43800,\n"
+                "Kia,,Limited,2015,43800,\n"            # missing model
+                "Kia,Rio,LX,2015,abc,\n").encode()       # bad price
+    done = logged_in.post("/prices/import", files={"file": ("list.csv", csv_file, "text/csv")}).text
+    assert "2 price(s) imported. 2 line(s) skipped" in done and "line 4: make and model are required" in done
+    # The same trim is preferred over another trim of the same model.
+    pick = lambda trim: logged_in.post("/api/market-value", json={  # noqa: E731
+        "vin": "KNALN4D73F5170942", "make": "Kia", "model": "Cadenza", "year": "2015", "trim": trim}).json()
+    assert pick("Premium")["value"]["new_price"] == 35100
+    assert pick("Limited")["value"]["new_price"] == 43800
+    wrong_file = logged_in.post("/prices/import", files={"file": ("x.csv", b"a,b\n1,2\n", "text/csv")}).text
+    assert "The first line must name the columns" in wrong_file
+
+    with TestClient(app) as other:      # inspectors can read the book but not change it
+        other.post("/login", data={"username": "inspector1", "password": "long-password-1"})
+        assert "Kia Cadenza" in other.get("/prices?q=cadenza").text
+        assert other.post("/prices", data={"make": "A", "model": "B", "year": "2020", "msrp": "9000"}).status_code == 403
+
+
+def test_comparison_with_earlier_declarations(logged_in):
+    car = {"make": "Subaru", "model": "Outback", "year": "2014"}
+    serials = ["279476", "111111", "222222", "333333"]
+    for serial, price in zip(serials, ["15000", "16000", "17000", "8000"]):
+        last = logged_in.post("/api/checks", data={"vin": f"4S4BRBCC3E3{serial}", **car, "declared_price": price})
+    page = logged_in.get(last.json()["url"]).text          # the 8,000 one, against 15/16/17 thousand
+    assert "3 other cars of this same model, trim and year" in page
+    assert "typical: 16,000" in page and "-50.0%" in page
+    first = logged_in.get("/history?q=4S4BRBCC3E3279476").text
+    assert "4S4BRBCC3E3279476" in first

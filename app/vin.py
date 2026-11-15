@@ -133,3 +133,13 @@ def validate_vin(raw: str) -> VinResult:
         result.suggestions = suggest_corrections(vin)
     result.possible_years = possible_model_years(vin)
     return result
+
+
+def vin_pattern(raw: str) -> str | None:
+    """The part of a VIN shared by every car of the same model, trim, engine
+    and model year: characters 1-8 plus character 10. (Character 9 is the check
+    digit and 11-17 are the plant and serial number, unique to each car.)"""
+    vin = normalize_vin(raw)
+    if len(vin) != 17 or any(ch in "IOQ" for ch in vin):
+        return None
+    return vin[:8] + vin[9]

@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS checks (
     decision TEXT NOT NULL DEFAULT 'pending', decision_by TEXT, decision_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_checks_vin ON checks(vin);
+CREATE TABLE IF NOT EXISTS price_book (
+    id INTEGER PRIMARY KEY,
+    vin_pattern TEXT,                 -- VIN characters 1-8 + 10, when known
+    make TEXT NOT NULL, model TEXT NOT NULL, trim TEXT, year INTEGER NOT NULL,
+    make_key TEXT NOT NULL, model_key TEXT NOT NULL,   -- lower-case, letters and digits only
+    msrp REAL NOT NULL,               -- manufacturer's price when new, in the base currency
+    source TEXT, added_by TEXT NOT NULL, added_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_pattern ON price_book(vin_pattern);
+CREATE INDEX IF NOT EXISTS idx_price_vehicle ON price_book(make_key, model_key, year);
 """
 
 DEFAULT_SETTINGS = {
@@ -210,3 +220,70 @@ def photo_in_use(filename: str) -> bool:
     with connect() as conn:
         return conn.execute("SELECT 1 FROM checks WHERE photo_file = ? OR vin_photo_file = ?",
                             (filename, filename)).fetchone() is not None
+
+
+# ---------- our own price book ----------
+def _key(text: str | None) -> str:
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+
+def add_price(*, make: str, model: str, year: int, msrp: float, added_by: str,
+              trim: str = "", vin_pattern: str | None = None, source: str = "") -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO price_book (vin_pattern, make, model, trim, year, make_key, model_key, "
+            "msrp, source, added_by, added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (vin_pattern, make.strip(), model.strip(), trim.strip(), year, _key(make), _key(model),
+             msrp, source.strip()[:200], added_by, now()))
+        return cur.lastrowid
+
+
+def find_price(vin_pattern: str | None, make: str, model: str, year: int, trim: str = ""):
+    """Best price-book entry for a vehicle, newest first.
+
+    1. Same VIN pattern: the same model, trim, engine and year. Most reliable.
+    2. Same make, model and year, preferring the same trim."""
+    with connect() as conn:
+        if vin_pattern:
+            row = conn.execute("SELECT *, 'VIN pattern' AS matched_by FROM price_book "
+                               "WHERE vin_pattern = ? ORDER BY id DESC", (vin_pattern,)).fetchone()
+            if row:
+                return row
+        if not (_key(make) and _key(model) and year):
+            return None
+        rows = conn.execute(
+            "SELECT *, 'make, model and year' AS matched_by FROM price_book "
+            "WHERE make_key = ? AND model_key = ? AND year = ? ORDER BY id DESC",
+            (_key(make), _key(model), year)).fetchall()
+        same_trim = [r for r in rows if _key(trim) and _key(r["trim"]) == _key(trim)]
+        return (same_trim or rows or [None])[0]
+
+
+def list_prices(query: str = "", limit: int = 300):
+    like = f"%{_key(query)}%"
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM price_book WHERE make_key || model_key LIKE ? OR vin_pattern LIKE ? "
+            "ORDER BY id DESC LIMIT ?", (like, f"%{query.strip().upper()}%", limit)).fetchall()
+
+
+def count_prices() -> int:
+    with connect() as conn:
+        return conn.execute("SELECT COUNT(*) FROM price_book").fetchone()[0]
+
+
+def delete_price(price_id: int) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM price_book WHERE id = ?", (price_id,))
+
+
+def peer_declarations(vin_pattern: str | None, exclude_id: int):
+    """Earlier declarations for cars with the same VIN pattern (other VINs only)."""
+    if not vin_pattern:
+        return []
+    with connect() as conn:
+        return conn.execute(
+            "SELECT id, vin, created_at, declared_base FROM checks "
+            "WHERE substr(vin, 1, 8) || substr(vin, 10, 1) = ? AND length(vin) = 17 "
+            "AND id != ? AND declared_base IS NOT NULL ORDER BY id DESC LIMIT 200",
+            (vin_pattern, exclude_id)).fetchall()

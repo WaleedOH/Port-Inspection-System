@@ -260,7 +260,8 @@
     try {
       const r = await postJson("/api/market-value", {
         vin: $("vin").value, make: $("make").value, model: $("model").value,
-        year: $("year").value, mileage: $("mileage").value, new_price: $("newPrice").value });
+        year: $("year").value, mileage: $("mileage").value, new_price: $("newPrice").value,
+        trim: $("trim").value });
       if (!r.found) {
         box.replaceChildren(note("warn", $("year").value
           ? "No price is on file for this vehicle. Enter the manufacturer's price when new above and tap again, or type a market value below."

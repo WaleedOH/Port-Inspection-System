@@ -31,6 +31,21 @@
   </dl>
 </div>
 
+{% if peers %}
+<div class="card">
+  <h2>Earlier declarations at this port</h2>
+  {% if peers.median %}
+  <p>{{ peers.count }} other cars of this same model, trim and year were declared between
+    <strong>{{ '{:,.0f}'.format(peers.low) }}</strong> and <strong>{{ '{:,.0f}'.format(peers.high) }} {{ c.base_currency }}</strong>
+    (typical: {{ '{:,.0f}'.format(peers.median) }}).
+    This declaration is <strong>{{ '%+.1f' | format(peers.diff_pct) }}%</strong> against the typical one.</p>
+  <p class="muted">Earlier declarations may themselves be too low, so use this as context, not as a reference price.</p>
+  {% else %}
+  <p class="muted">{{ peers.count }} other car(s) of this same model, trim and year have been checked. A comparison appears once there are 3.</p>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Why this flag?</h2>
   <ol class="why">{% for line in (c.explanation or '').splitlines() %}<li>{{ line }}</li>{% endfor %}</ol>

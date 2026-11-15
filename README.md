@@ -90,6 +90,17 @@ app/
 tests/
 ```
 
+### The port's own price book
+
+The price is not inside a VIN; manufacturers publish it separately for each model, trim and year. Instead of buying that data, the app keeps its own list on the **Prices** page:
+
+- **It fills itself.** When an inspector types a manufacturer's price during a check, it is saved against the car's *VIN pattern* (characters 1–8 and 10, which identify model, trim, engine and year). Every later car with the same pattern gets that price automatically.
+- **Administrators can add prices or import a list** as a CSV file with the columns `make, model, year, msrp` and optionally `trim, vin, source`.
+- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then NHTSA.
+- **Every entry records who added it, when, and from what source,** and administrators can remove wrong ones. An entry typed in by mistake would affect later checks until it is removed.
+
+Each result also shows **earlier declarations at this port** for the same VIN pattern, once at least 3 other cars have been checked.
+
 ### Swapping the pricing provider
 
 `app/pricing/base.py` defines the interface: one method, `get_value(vin, make, model, year, mileage)`, which returns a value, a low–high range, a source and a date.

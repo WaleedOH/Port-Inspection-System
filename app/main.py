@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+import statistics
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +26,7 @@ from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
 from .readers import Photo, get_reader
-from .vin import validate_vin
+from .vin import validate_vin, vin_pattern
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -232,10 +233,16 @@ async def vin_check(request: Request):
 
 
 def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | None,
-                  new_price: float | None):
-    """Ask the pricing provider. The manufacturer's price when new comes from
-    the inspector if typed in, otherwise from NHTSA when it has one."""
+                  new_price: float | None, trim: str = ""):
+    """Ask the pricing provider. The manufacturer's price when new comes from,
+    in order: the inspector (typed in), our own price book, then NHTSA."""
     source = "entered by inspector"
+    if not new_price:
+        entry = db.find_price(vin_pattern(vin), make, model, year, trim)
+        if entry:
+            new_price = entry["msrp"]
+            source = (f"from our price book, matched by {entry['matched_by']}; "
+                      f"added by {entry['added_by']} on {entry['added_at'][:10]}")
     if not new_price:
         result = validate_vin(vin)
         decoded = vpic.decode_vin(result.vin) if result.is_standard else {}
@@ -254,7 +261,7 @@ async def market_value(request: Request):
     except (TypeError, ValueError):
         raise HTTPException(422, "Year, mileage and price must be numbers.")
     value = _lookup_value(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
-                          year, mileage, new_price)
+                          year, mileage, new_price, body.get("trim") or "")
     return {"found": value is not None, "value": value.to_dict() if value else None}
 
 
@@ -313,7 +320,7 @@ async def create_check(
         # Ask the provider again on the server instead of trusting the browser.
         found = _lookup_value(validation["vin"], make, model, int(year_n or 0),
                               int(mileage_n) if mileage_n is not None else None,
-                              _number(new_price, "Manufacturer's price"))
+                              _number(new_price, "Manufacturer's price"), trim)
         if found:
             market, low, high, market_source = found.value, found.low, found.high, found.source
     elif market is not None:
@@ -350,16 +357,43 @@ async def create_check(
         "vin_photo_file": _save_photo(await _read_photo(vin_plate)),
         "notes": notes.strip()[:2000],
     })
+    # Remember a typed-in manufacturer's price, so the next car with the same
+    # VIN pattern gets it automatically. This is how the price book fills itself.
+    typed = _number(new_price, "Manufacturer's price")
+    pattern = vin_pattern(validation["vin"])
+    if typed and typed > 0 and pattern and make.strip() and model.strip() and year_n:
+        known = db.find_price(pattern, "", "", 0)
+        if not known or known["msrp"] != typed:
+            db.add_price(make=make, model=model, trim=trim, year=int(year_n), msrp=typed,
+                         vin_pattern=pattern, added_by=request.session["user"],
+                         source=f"Typed in during check #{check_id}")
     return {"id": check_id, "url": f"/checks/{check_id}"}
 
 
 # ---------------- result, history, export ----------------
+def _peer_summary(check) -> dict | None:
+    """How this declaration compares with earlier ones for the same model,
+    trim and year at this port. Needs at least 3 other cars to mean anything."""
+    rows = db.peer_declarations(vin_pattern(check["vin"]), check["id"])
+    by_vin = {}
+    for row in rows:                      # one declaration per car (the latest)
+        by_vin.setdefault(row["vin"], row["declared_base"])
+    by_vin.pop(check["vin"], None)
+    if len(by_vin) < 3 or not check["declared_base"]:
+        return {"count": len(by_vin)} if by_vin else None
+    typical = statistics.median(by_vin.values())
+    return {"count": len(by_vin), "median": typical, "low": min(by_vin.values()),
+            "high": max(by_vin.values()),
+            "diff_pct": round((check["declared_base"] - typical) / typical * 100, 1) if typical else None}
+
+
 @app.get("/checks/{check_id}")
 def check_detail(request: Request, check_id: int):
     check = db.get_check(check_id)
     if not check:
         raise HTTPException(404, "Check not found.")
     return page(request, "check.html", c=check, specs=json.loads(check["decoded_specs"] or "{}"),
+                peers=_peer_summary(check),
                 previous=db.previous_checks_for_vin(check["vin"], exclude_id=check_id))
 
 
@@ -410,6 +444,95 @@ def history_csv(q: str = "", flag: str = ""):
         writer.writerow([csv_safe(row[col]) for col in CSV_COLUMNS])
     return StreamingResponse(iter([out.getvalue()]), media_type="text/csv", headers={
         "Content-Disposition": f'attachment; filename="import-checks-{time.strftime("%Y%m%d")}.csv"'})
+
+
+# ---------------- our own price book ----------------
+def _prices_page(request: Request, q: str = "", message: str | None = None, error: str | None = None):
+    return page(request, "prices.html", prices=db.list_prices(q), q=q, total=db.count_prices(),
+                message=message, error=error, base=db.get_settings()["base_currency"])
+
+
+@app.get("/prices")
+def prices(request: Request, q: str = ""):
+    return _prices_page(request, q.strip()[:40])
+
+
+def _price_row(row: dict) -> dict:
+    """Validate one price-book entry (from the form or from a CSV line)."""
+    get = lambda key: str(row.get(key) or "").strip()  # noqa: E731
+    make, model, year = get("make"), get("model"), get("year")
+    msrp = get("msrp").replace(",", "").replace("$", "")
+    if not make or not model:
+        raise ValueError("make and model are required")
+    if not year.isdigit() or not 1950 <= int(year) <= 2100:
+        raise ValueError("year must be a 4-digit year")
+    try:
+        price = float(msrp)
+    except ValueError:
+        raise ValueError("msrp must be a number")
+    if not 500 <= price <= 5_000_000:
+        raise ValueError("msrp must be between 500 and 5,000,000")
+    pattern = None
+    if get("vin"):
+        pattern = vin_pattern(get("vin"))
+        if not pattern:
+            raise ValueError("vin must be a full 17-character VIN")
+    return {"make": make[:40], "model": model[:60], "trim": get("trim")[:60], "year": int(year),
+            "msrp": price, "vin_pattern": pattern, "source": get("source")}
+
+
+@app.post("/prices")
+def add_price(request: Request, make: str = Form(""), model: str = Form(""), trim: str = Form(""),
+              year: str = Form(""), msrp: str = Form(""), vin: str = Form(""), source: str = Form("")):
+    require_admin(request)
+    try:
+        entry = _price_row({"make": make, "model": model, "trim": trim, "year": year, "msrp": msrp,
+                            "vin": vin, "source": source})
+    except ValueError as exc:
+        return _prices_page(request, error=f"Not saved: {exc}.")
+    db.add_price(**entry, added_by=request.session["user"])
+    return _prices_page(request, message="Price added.")
+
+
+@app.post("/prices/import")
+async def import_prices(request: Request, file: UploadFile = File(...)):
+    require_admin(request)
+    raw = await file.read(1_000_001)
+    if len(raw) > 1_000_000:
+        return _prices_page(request, error="The file is too large (limit 1 MB).")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return _prices_page(request, error="The file must be a CSV saved as UTF-8 text.")
+    reader = csv.DictReader(io.StringIO(text))
+    headers = {(h or "").strip().lower() for h in reader.fieldnames or []}
+    if not {"make", "model", "year", "msrp"} <= headers:
+        return _prices_page(request, error="The first line must name the columns: make, model, year, msrp "
+                                           "(optional: trim, vin, source).")
+    added, problems = 0, []
+    for number, row in enumerate(reader, start=2):
+        if number > 5001:
+            problems.append("stopped after 5,000 lines")
+            break
+        try:
+            entry = _price_row({(k or "").strip().lower(): v for k, v in row.items()})
+        except ValueError as exc:
+            problems.append(f"line {number}: {exc}")
+            continue
+        entry["source"] = entry["source"] or f"Imported from {(file.filename or 'CSV')[:60]}"
+        db.add_price(**entry, added_by=request.session["user"])
+        added += 1
+    note = f"{added} price(s) imported."
+    if problems:
+        note += f" {len(problems)} line(s) skipped: " + "; ".join(problems[:5])
+    return _prices_page(request, message=note)
+
+
+@app.post("/prices/{price_id}/delete")
+def remove_price(request: Request, price_id: int):
+    require_admin(request)
+    db.delete_price(price_id)
+    return _prices_page(request, message="Price removed.")
 
 
 # ---------------- settings ----------------

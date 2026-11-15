@@ -67,7 +67,7 @@ dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 
 .list { list-style: none; padding: 0; margin: 12px 0; }
 .list li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; }
-.list li > a, .list.plain li { display: flex; align-items: center; gap: 12px; padding: 12px; text-decoration: none; color: inherit; }
+.list li > a, .list li > .item, .list.plain li { display: flex; align-items: center; gap: 12px; padding: 12px; text-decoration: none; color: inherit; }
 .list.plain li { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; margin: 0; padding: 8px 0; }
 .grow { flex: 1; min-width: 0; }
 .dot { width: 18px; height: 18px; border-radius: 50%; flex: none; background: #8a96a3; }

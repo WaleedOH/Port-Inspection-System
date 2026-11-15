@@ -20,7 +20,10 @@
     <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>
   </nav>
   {% endif %}
-  <main>{% block content %}{% endblock %}</main>
+  <main>
+    {% if ephemeral %}<p class="note warn" role="status"><strong>Demo mode.</strong> This host has no permanent storage, so saved checks, photos and accounts are erased regularly. Do not use it for real work.</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -34,18 +34,31 @@ DECISIONS = {"pending": "Pending", "cleared": "Cleared, no action",
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+_ready = False
+
+
+def ensure_ready() -> None:
+    """Create the database tables and the first administrator, once."""
+    global _ready
+    if _ready:
+        return
     db.init()
     if db.count_users() == 0:
-        # First start: create the administrator account.
         username = os.environ.get("ADMIN_USERNAME", "admin")
         password = os.environ.get("ADMIN_PASSWORD")
+        if not password and config.is_ephemeral():
+            return  # nobody could read a printed password here; the login page explains
         if not password:
             password = secrets.token_urlsafe(9)
             print(f"\n*** First start. Log in with username '{username}' and password "
                   f"'{password}'  (shown only once; set ADMIN_PASSWORD to choose your own) ***\n")
         db.create_user(username, password, is_admin=True)
+    _ready = True
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_ready()
     yield
 
 
@@ -55,6 +68,7 @@ app = FastAPI(title="Import Value Checker", lifespan=lifespan, docs_url=None, re
 @app.middleware("http")
 async def security(request: Request, call_next):
     path = request.url.path
+    ensure_ready()  # some hosts skip the start-up step, so make sure here too
     # 1. Block form posts coming from other websites (CSRF protection).
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         origin = request.headers.get("origin")
@@ -86,7 +100,8 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
-                   flag_labels=FLAG_LABELS, decisions=DECISIONS)
+                   flag_labels=FLAG_LABELS, decisions=DECISIONS,
+                   ephemeral=config.is_ephemeral(), needs_setup=not _ready)
     return templates.TemplateResponse(request, name, context)
 
 

@@ -110,7 +110,9 @@ Not yet included, and needed before real use: HTTPS (your hosting provides it), 
 
 ## Deploy it
 
-The app needs one thing from a host: a **persistent disk**, because the database and photos live in the `data` folder. Hosts without one (for example serverless platforms) will lose the data on every restart.
+The app needs one thing from a host: a **persistent disk**, because the database and photos live in the `data` folder.
+
+**Vercel and other serverless hosts have no persistent disk.** The app still starts there, in **demo mode**: it stores data in a temporary folder, shows a warning banner, and loses saved checks, photos and accounts regularly. That is fine for showing the app to someone, and not for real work. On Vercel, set `ADMIN_PASSWORD` and `SECRET_KEY` under Settings → Environment Variables, then redeploy.
 
 **With Docker** (works on a small server or any host that runs containers with a volume, such as Railway or Fly.io):
 

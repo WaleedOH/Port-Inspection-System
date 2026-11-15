@@ -1,4 +1,10 @@
-"""Database access. Uses SQLite: a single file, nothing to install.
+"""Database access. All saved data lives in SQL tables defined below.
+
+Two database engines are supported, with the same tables and the same SQL:
+  - SQLite (default): a single file in the data folder, nothing to install.
+  - PostgreSQL: used when DATABASE_URL is set. This is what makes data
+    permanent on hosts without a disk, and it can be any PostgreSQL server
+    (Supabase, Neon, or your organisation's own).
 
 Every query uses "?" placeholders, so user input can never be run as SQL.
 """
@@ -7,6 +13,7 @@ import hmac
 import json
 import secrets
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -15,38 +22,41 @@ from .compare import DEFAULT_GREEN_THRESHOLD, DEFAULT_YELLOW_THRESHOLD
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
+    id {PK}, username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vin_cache (vin TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS checks (
-    id INTEGER PRIMARY KEY,
+    id {PK},
     created_at TEXT NOT NULL, created_by TEXT NOT NULL,
     vin TEXT NOT NULL, vin_standard INTEGER, vin_check_digit_ok INTEGER, vin_notes TEXT,
     doc_make TEXT, doc_model TEXT, doc_year INTEGER,
     decoded_make TEXT, decoded_model TEXT, decoded_year INTEGER, mismatch_notes TEXT,
     seller TEXT, buyer TEXT, mileage INTEGER, incoterm TEXT,
-    declared_price REAL NOT NULL, currency TEXT NOT NULL,
-    exchange_rate REAL NOT NULL, base_currency TEXT NOT NULL, declared_base REAL,
-    market_value REAL, market_low REAL, market_high REAL, market_source TEXT,
-    diff_pct REAL, flag TEXT NOT NULL, flag_label TEXT NOT NULL, explanation TEXT,
-    green_threshold REAL, yellow_threshold REAL,
+    declared_price {REAL} NOT NULL, currency TEXT NOT NULL,
+    exchange_rate {REAL} NOT NULL, base_currency TEXT NOT NULL, declared_base {REAL},
+    market_value {REAL}, market_low {REAL}, market_high {REAL}, market_source TEXT,
+    diff_pct {REAL}, flag TEXT NOT NULL, flag_label TEXT NOT NULL, explanation TEXT,
+    green_threshold {REAL}, yellow_threshold {REAL},
     photo_file TEXT, vin_photo_file TEXT, notes TEXT,
     decision TEXT NOT NULL DEFAULT 'pending', decision_by TEXT, decision_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_checks_vin ON checks(vin);
 CREATE TABLE IF NOT EXISTS price_book (
-    id INTEGER PRIMARY KEY,
+    id {PK},
     vin_pattern TEXT,                 -- VIN characters 1-8 + 10, when known
     make TEXT NOT NULL, model TEXT NOT NULL, trim TEXT, year INTEGER NOT NULL,
     make_key TEXT NOT NULL, model_key TEXT NOT NULL,   -- lower-case, letters and digits only
-    msrp REAL NOT NULL,               -- manufacturer's price when new, in the base currency
+    msrp {REAL} NOT NULL,               -- manufacturer's price when new, in the base currency
     source TEXT, added_by TEXT NOT NULL, added_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_price_pattern ON price_book(vin_pattern);
 CREATE INDEX IF NOT EXISTS idx_price_vehicle ON price_book(make_key, model_key, year);
+CREATE TABLE IF NOT EXISTS photos (
+    name TEXT PRIMARY KEY, media_type TEXT NOT NULL, data {BLOB} NOT NULL, created_at TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -65,8 +75,51 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def is_postgres() -> bool:
+    return bool(config.database_url())
+
+
+class _Postgres:
+    """Makes a PostgreSQL connection look like the SQLite one used everywhere
+    else: '?' placeholders, and rows you can read by column name."""
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, sql: str, params=()):
+        return self.raw.execute(sql.replace("%", "%%").replace("?", "%s"), list(params))
+
+
+_local = threading.local()   # one PostgreSQL connection per worker thread, reused
+
+
+def _postgres():
+    import psycopg  # imported here so the app runs without it when using SQLite
+    from psycopg.rows import dict_row
+
+    raw = getattr(_local, "raw", None)
+    if raw is None or raw.closed or getattr(_local, "url", None) != config.database_url():
+        # prepare_threshold=None keeps it compatible with connection poolers (e.g. Supabase's).
+        raw = psycopg.connect(config.database_url(), row_factory=dict_row, prepare_threshold=None,
+                              connect_timeout=10)
+        _local.raw, _local.url = raw, config.database_url()
+    return raw
+
+
 @contextmanager
 def connect():
+    if is_postgres():
+        raw = _postgres()
+        try:
+            yield _Postgres(raw)
+            raw.commit()
+        except Exception:
+            try:
+                raw.rollback()
+            except Exception:       # the connection itself is broken: drop it, reconnect next time
+                raw.close()
+            raise
+        return
     conn = sqlite3.connect(config.data_dir() / "app.db")
     conn.row_factory = sqlite3.Row
     try:
@@ -74,6 +127,32 @@ def connect():
         conn.commit()
     finally:
         conn.close()
+
+
+def _schema() -> str:
+    """The same tables for both engines; only three type names differ."""
+    if is_postgres():
+        return SCHEMA.format(PK="INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY",
+                             REAL="DOUBLE PRECISION", BLOB="BYTEA")
+    return SCHEMA.format(PK="INTEGER PRIMARY KEY", REAL="REAL", BLOB="BLOB")
+
+
+def _columns(conn, table: str) -> set[str]:
+    if is_postgres():
+        rows = conn.execute("SELECT column_name AS name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() AND table_name = ?", (table,))
+    else:
+        rows = conn.execute(f"PRAGMA table_info({table})")
+    return {row["name"] for row in rows}
+
+
+def _insert(conn, table: str, values: dict) -> int:
+    """Insert one row and return its new id (works on both engines)."""
+    values = {k: int(v) if isinstance(v, bool) else v for k, v in values.items()}
+    marks = ", ".join("?" for _ in values)
+    row = conn.execute(f"INSERT INTO {table} ({', '.join(values)}) VALUES ({marks}) RETURNING id",
+                       list(values.values())).fetchone()
+    return row["id"]
 
 
 # Columns added after the first version. Existing databases get them on start-up.
@@ -90,9 +169,11 @@ NEW_COLUMNS = {
 
 def init() -> None:
     with connect() as conn:
-        conn.executescript(SCHEMA)
+        for statement in _schema().split(";"):
+            if statement.strip():
+                conn.execute(statement)
         for table, columns in NEW_COLUMNS.items():
-            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            existing = _columns(conn, table)
             for name, kind in columns.items():
                 if name not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
@@ -140,7 +221,7 @@ def delete_user(user_id: int) -> None:
 
 def count_users() -> int:
     with connect() as conn:
-        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        return conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
 
 
 # ---------- settings ----------
@@ -171,17 +252,15 @@ def get_cached_vin(vin: str) -> str | None:
 
 def cache_vin(vin: str, data: str) -> None:
     with connect() as conn:
-        conn.execute("INSERT OR REPLACE INTO vin_cache (vin, data, fetched_at) VALUES (?,?,?)",
+        conn.execute("INSERT INTO vin_cache (vin, data, fetched_at) VALUES (?,?,?) "
+                     "ON CONFLICT(vin) DO UPDATE SET data = excluded.data, fetched_at = excluded.fetched_at",
                      (vin, data, now()))
 
 
 # ---------- checks ----------
 def insert_check(values: dict) -> int:
-    columns = ", ".join(values)
-    marks = ", ".join("?" for _ in values)
     with connect() as conn:
-        cur = conn.execute(f"INSERT INTO checks ({columns}) VALUES ({marks})", list(values.values()))
-        return cur.lastrowid
+        return _insert(conn, "checks", values)
 
 
 def get_check(check_id: int):
@@ -221,6 +300,19 @@ def set_decision(check_id: int, decision: str, notes: str, username: str) -> Non
             (decision, notes, username, now(), check_id))
 
 
+def save_photo(name: str, media_type: str, data: bytes) -> None:
+    """Photos are kept in the database too, so they survive on any host."""
+    with connect() as conn:
+        conn.execute("INSERT INTO photos (name, media_type, data, created_at) VALUES (?,?,?,?)",
+                     (name, media_type, data, now()))
+
+
+def get_photo(name: str):
+    with connect() as conn:
+        row = conn.execute("SELECT media_type, data FROM photos WHERE name = ?", (name,)).fetchone()
+        return (row["media_type"], bytes(row["data"])) if row else None
+
+
 def photo_in_use(filename: str) -> bool:
     with connect() as conn:
         return conn.execute("SELECT 1 FROM checks WHERE photo_file = ? OR vin_photo_file = ?",
@@ -236,12 +328,10 @@ def add_price(*, make: str, model: str, year: int, msrp: float, added_by: str,
               trim: str = "", vin_pattern: str | None = None, source: str = "",
               verified: bool = True) -> int:
     with connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO price_book (vin_pattern, make, model, trim, year, make_key, model_key, "
-            "msrp, source, added_by, added_at, verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (vin_pattern, make.strip(), model.strip(), trim.strip(), year, _key(make), _key(model),
-             msrp, source.strip()[:500], added_by, now(), int(verified)))
-        return cur.lastrowid
+        return _insert(conn, "price_book", {
+            "vin_pattern": vin_pattern, "make": make.strip(), "model": model.strip(), "trim": trim.strip(),
+            "year": year, "make_key": _key(make), "model_key": _key(model), "msrp": msrp,
+            "source": source.strip()[:500], "added_by": added_by, "added_at": now(), "verified": verified})
 
 
 def find_price(vin_pattern: str | None, make: str, model: str, year: int, trim: str = ""):
@@ -275,7 +365,7 @@ def list_prices(query: str = "", limit: int = 300):
 
 def count_prices() -> int:
     with connect() as conn:
-        return conn.execute("SELECT COUNT(*) FROM price_book").fetchone()[0]
+        return conn.execute("SELECT COUNT(*) AS n FROM price_book").fetchone()["n"]
 
 
 def confirm_price(price_id: int) -> None:

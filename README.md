@@ -49,6 +49,8 @@ To try it from your phone on the same Wi-Fi, start it with `uvicorn app.main:app
 pytest
 ```
 
+Tests use a throw-away SQLite file and ignore `DATABASE_URL`, so they can never touch real data. To run them on PostgreSQL as well, set `TEST_DATABASE_URL` to an empty database whose name contains `test`.
+
 The tests cover VIN validation, the price comparison logic, the document parser, the mock pricing provider and the whole web flow.
 
 They include **40 real VINs** (34 makes, model years 1993–2015) from the open [vin-test-data](https://github.com/sen4ik/vin-test-data) dataset (MIT licence). Each was decoded once with the live NHTSA service and the answer is saved in `tests/data/real_vins.json`, so the tests run without internet. To call the live NHTSA service as well:
@@ -68,7 +70,8 @@ No password or API key is ever written in the code. They are read from environme
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | First administrator account (used once) | `admin` / random, printed |
 | `SECRET_KEY` | Signs the login cookies | generated and kept in the data folder |
 | `COOKIE_SECURE` | Set to `1` when served over HTTPS | `0` |
-| `DATA_DIR` | Folder for the database and photos | `data` |
+| `DATABASE_URL` | PostgreSQL address for permanent storage; empty = SQLite file | empty |
+| `DATA_DIR` | Folder for the SQLite file | `data` |
 | `VIN_DECODER` | `both` (own database, then NHTSA), `offline` or `online` | `both` |
 | `PRICE_RESEARCH` | `off`, or `claude` to search the web for missing prices | `off` |
 | `DOCUMENT_READER` | `browser-ocr` or `claude` | `browser-ocr` |
@@ -93,6 +96,26 @@ app/
   templates/, static/   the screens
 tests/
 ```
+
+### Where the data is stored: your own SQL tables
+
+Everything the app saves lives in SQL tables that the app creates itself on first start (`app/db.py`):
+
+| Table | What it holds |
+|---|---|
+| `checks` | every check: VIN, paper and decoded details, prices, flags, decision |
+| `photos` | the document and VIN photos |
+| `price_book` | manufacturer prices, with source and who added them |
+| `users` | inspector accounts (passwords stored as hashes) |
+| `settings` | thresholds and exchange rates |
+| `vin_cache` | vehicle details fetched online, kept for next time |
+
+The same tables and the same SQL run on two database engines:
+
+- **SQLite** (default): one file in the `data` folder. Nothing to install; ideal on your own computer or a server with a disk.
+- **PostgreSQL**: used when `DATABASE_URL` is set. This is what makes data permanent on hosts without a disk, such as Vercel. Any PostgreSQL server works: Supabase, Neon, or your organisation's own. Nothing in the code is tied to one provider, and the data can be exported with standard PostgreSQL tools.
+
+The built-in vehicle database is separate, read-only reference data that ships with the app.
 
 ### How a lookup works: own data first, online only when needed
 
@@ -158,9 +181,15 @@ Not yet included, and needed before real use: HTTPS (your hosting provides it), 
 
 ## Deploy it
 
-The app needs one thing from a host: a **persistent disk**, because the database and photos live in the `data` folder.
+The app needs somewhere permanent for its data: either a **persistent disk** (for the SQLite file) or a **PostgreSQL database**.
 
-**Vercel and other serverless hosts have no persistent disk.** The app still starts there, in **demo mode**: it stores data in a temporary folder, shows a warning banner, and loses saved checks, photos and accounts regularly. That is fine for showing the app to someone, and not for real work. On Vercel, set `ADMIN_PASSWORD` and `SECRET_KEY` under Settings → Environment Variables, then redeploy.
+**Vercel and other serverless hosts have no persistent disk**, so there the app needs a PostgreSQL database:
+
+1. Create a PostgreSQL database (for example a free Supabase project) and copy its connection string, which looks like `postgresql://user:password@host:5432/dbname`. If the provider offers a "pooler" address, use that one.
+2. In Vercel, under Settings → Environment Variables, add it as `DATABASE_URL`, and also set `ADMIN_PASSWORD` and `SECRET_KEY`.
+3. Redeploy. The app creates its tables by itself, and the Settings page shows "Saved data: PostgreSQL database (permanent)".
+
+Without `DATABASE_URL`, the app still starts on such hosts in **demo mode**: it shows a warning banner and loses saved data regularly.
 
 **With Docker** (works on a small server or any host that runs containers with a volume, such as Railway or Fly.io):
 
@@ -174,7 +203,7 @@ docker run -d -p 8000:8000 -v ivc-data:/data \
 
 Put it behind HTTPS (hosting platforms do this for you; on your own server use a reverse proxy such as Caddy). The Docker image already sets `COOKIE_SECURE=1`, so login only works over HTTPS; for a local test over plain `http`, add `-e COOKIE_SECURE=0`.
 
-Run a single copy of the app: SQLite and the login lock-out are designed for one process.
+With SQLite, run a single copy of the app. The login lock-out counter is kept per process.
 
 For real customs data, your organisation will probably require hosting on its own network. The same Docker image works there.
 

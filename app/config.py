@@ -29,8 +29,17 @@ def data_dir() -> Path:
     return path
 
 
+def database_url() -> str | None:
+    """Address of a PostgreSQL database (Supabase, Neon, your own server...).
+    When set, ALL saved data lives there. When empty, the app uses a SQLite
+    file in the data folder, which is ideal on your own computer."""
+    return os.environ.get("DATABASE_URL") or None
+
+
 def is_ephemeral() -> bool:
     """True when saved data will NOT survive (temporary storage is in use)."""
+    if database_url():
+        return False
     data_dir()
     return _fallback_dir is not None or bool(os.environ.get("VERCEL"))
 

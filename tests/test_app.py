@@ -197,6 +197,7 @@ def test_old_database_gains_the_new_columns(tmp_path, monkeypatch):
     import sqlite3
     from app import config, db
     monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)     # this test is about the SQLite file
     with sqlite3.connect(tmp_path / "app.db") as conn:   # a database from the first version
         conn.execute("CREATE TABLE checks (id INTEGER PRIMARY KEY, vin TEXT NOT NULL)")
         conn.execute("INSERT INTO checks (vin) VALUES ('1HGCM82633A004352')")

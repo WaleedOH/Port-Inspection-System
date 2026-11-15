@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
+from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse, Response,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -191,7 +191,7 @@ def _save_photo(photo: Photo | None) -> str | None:
         return None
     extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[photo.media_type]
     name = f"{secrets.token_hex(16)}.{extension}"  # random name, never the uploaded one
-    (config.data_dir() / "photos" / name).write_bytes(photo.data)
+    db.save_photo(name, photo.media_type, photo.data)
     return name
 
 
@@ -433,7 +433,10 @@ def photo(filename: str):
     # Only names we generated ourselves, and only photos attached to a check.
     if not re.fullmatch(r"[0-9a-f]{32}\.(jpg|png|webp)", filename) or not db.photo_in_use(filename):
         raise HTTPException(404, "Photo not found.")
-    return FileResponse(config.data_dir() / "photos" / filename)
+    stored = db.get_photo(filename)
+    if stored:
+        return Response(stored[1], media_type=stored[0])
+    return FileResponse(config.data_dir() / "photos" / filename)   # photos saved by older versions
 
 
 @app.get("/history")
@@ -571,7 +574,10 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
     rates_text = "\n".join(f"{code} = {rate:g}" for code, rate in settings["exchange_rates"].items())
     return page(request, "settings.html", settings=settings, rates_text=rates_text, error=error,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
-                decoder=vpic.decoder_name(), research_on=research.enabled())
+                decoder=vpic.decoder_name(), research_on=research.enabled(),
+                storage="PostgreSQL database (permanent)" if db.is_postgres() else
+                        ("SQLite file in temporary storage (erased regularly)" if config.is_ephemeral()
+                         else "SQLite file in the data folder"))
 
 
 @app.get("/settings")

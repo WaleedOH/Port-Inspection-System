@@ -26,6 +26,7 @@ def parse_vpic_response(payload: dict) -> dict:
     """Pick the few fields we need out of vPIC's ~150 fields."""
     row = (payload.get("Results") or [{}])[0]
     year = (row.get("ModelYear") or "").strip()
+    price = (row.get("BasePrice") or "").strip()
     codes = [c.strip() for c in (row.get("ErrorCode") or "").split(",") if c.strip()]
     return {
         "available": True,
@@ -35,6 +36,8 @@ def parse_vpic_response(payload: dict) -> dict:
         "manufacturer": (row.get("Manufacturer") or "").strip() or None,
         "body_class": (row.get("BodyClass") or "").strip() or None,
         "country": (row.get("PlantCountry") or "").strip().title() or None,
+        # Manufacturer's base price when new. NHTSA only has it for a few vehicles.
+        "base_price": float(price) if price.replace(".", "", 1).isdigit() and float(price) > 0 else None,
         "error_codes": codes,
         # vPIC reports problems inside the body, not via HTTP status.
         "clean": codes in ([], ["0"]),

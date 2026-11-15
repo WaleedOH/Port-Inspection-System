@@ -25,6 +25,10 @@ class PricingProvider(Protocol):
     name: str
 
     def get_value(self, *, vin: str, make: str, model: str, year: int,
-                  mileage: int | None = None) -> MarketValue | None:
-        """Return a market value, or None if this vehicle is not covered."""
+                  mileage: int | None = None, new_price: float | None = None,
+                  new_price_source: str = "") -> MarketValue | None:
+        """Return a market value, or None if this vehicle is not covered.
+
+        new_price is the manufacturer's price when the car was new (MSRP), if
+        known. A provider with real market data can ignore it."""
         ...

@@ -72,7 +72,10 @@
     <p class="muted">Use the official customs rate for the declaration date.</p>
   </div>
   <div class="card">
-    <button class="btn" id="lookupBtn" type="button">Look up reference value</button>
+    <label>Manufacturer's price when new, in USD <span class="muted">(MSRP, optional)</span>
+      <input id="newPrice" inputmode="decimal" placeholder="From the manufacturer's site or window sticker">
+    </label>
+    <button class="btn" id="lookupBtn" type="button">Estimate today's value</button>
     <div id="lookupResult" aria-live="polite"></div>
     <label>Reference market value ({{ settings.base_currency }})
       <input id="market" inputmode="decimal">

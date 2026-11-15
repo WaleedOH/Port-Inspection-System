@@ -96,3 +96,23 @@ def test_vpic_response_parsing():
                                                 "ErrorCode": "1,8", "ErrorText": "1 - Check Digit..."}]})
     assert partial["model"] is None and partial["year"] is None and not partial["clean"]
     assert parse_vpic_response({})["make"] is None
+
+
+def test_estimate_from_manufacturer_price():
+    provider = MockPricingProvider(today=date(2026, 6, 1))
+    # A model that is NOT in the sample table still gets a value from its MSRP.
+    v = provider.get_value(make="Volvo", model="S60", year=2012, new_price=31300)
+    assert v is not None and 0 < v.value < 31300
+    assert "manufacturer's price when new (31,300 USD, entered by inspector)" in v.source
+    # The typed-in MSRP wins over the sample table.
+    table = provider.get_value(make="Toyota", model="Camry", year=2026).value
+    assert provider.get_value(make="Toyota", model="Camry", year=2026, new_price=40000).value == 40000 != table
+    # A brand-new car is worth its price; no year means no estimate.
+    assert provider.get_value(make="X", model="Y", year=0, new_price=30000) is None
+
+
+def test_nhtsa_base_price_is_read_when_present():
+    with_price = parse_vpic_response({"Results": [{"Make": "MINI", "Model": "Cooper", "ModelYear": "2006",
+                                                   "BasePrice": "17450", "ErrorCode": "0"}]})
+    assert with_price["base_price"] == 17450.0
+    assert parse_vpic_response({"Results": [{"Make": "FORD", "BasePrice": ""}]})["base_price"] is None

@@ -142,3 +142,22 @@ def test_non_admin_cannot_change_settings(logged_in):
         assert other.get("/history").status_code == 200
         denied = other.post("/settings", data={"green_threshold": "1", "yellow_threshold": "2"})
         assert denied.status_code == 403
+
+
+def test_value_estimated_from_manufacturer_price(logged_in, monkeypatch):
+    # Not in the sample table, no price typed: nothing found.
+    body = {"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012"}
+    assert logged_in.post("/api/market-value", json=body).json()["found"] is False
+    # Inspector types the MSRP: an estimate comes back.
+    r = logged_in.post("/api/market-value", json={**body, "new_price": "31,300"}).json()
+    assert r["found"] and "entered by inspector" in r["value"]["source"]
+    # NHTSA has a base price for this VIN: it is used automatically.
+    monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
+        "available": True, "make": "MINI", "model": "Cooper", "year": 2006, "base_price": 17450.0,
+        "clean": True, "message": None})
+    r = logged_in.post("/api/market-value", json={"vin": VIN, "make": "MINI", "model": "Cooper", "year": "2006"}).json()
+    assert r["found"] and "17,450 USD, from NHTSA" in r["value"]["source"]
+    # And the saved check records where the value came from.
+    saved = logged_in.post("/api/checks", data={"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012",
+                                                "declared_price": "500", "use_provider": "1", "new_price": "31300"})
+    assert "31,300 USD, entered by inspector" in logged_in.get(saved.json()["url"]).text

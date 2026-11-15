@@ -13,7 +13,7 @@ A prototype web app for customs and port inspectors. The inspector photographs a
 4. **VIN check.** The app checks the VIN (17 characters, no I/O/Q, check digit) and decodes it with the free [NHTSA vPIC API](https://vpic.nhtsa.dot.gov/api/).
    When the check digit fails, it offers "did you mean?" fixes for look-alike characters (S/5, B/8, Z/2, G/6, D/0, and I/O/Q). It never changes the VIN by itself.
 5. **Mismatch warning.** It warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
-6. **Market value.** It looks up a reference value (sample data for now), or the inspector types one in with its source.
+6. **Market value.** It estimates today's value from the manufacturer's price when new (typed in by the inspector, or from NHTSA when available), or the inspector types a market value in with its source.
 7. **Result.** It shows declared price, market value, the difference in %, a flag, and a plain-language "Why this flag?" explanation. The page can be printed or saved as PDF.
 8. **History.** Every check is saved with date, inspector, photos, all values and the officer's decision. The history page has search by VIN and export to CSV.
 
@@ -93,7 +93,7 @@ tests/
 
 `app/pricing/base.py` defines the interface: one method, `get_value(vin, make, model, year, mileage)`, which returns a value, a low–high range, a source and a date.
 
-Today there is only `mock.py`, with **sample numbers that are not real market data**. To plug in Black Book, J.D. Power, auction data or another source:
+Today there is only `mock.py`. It **estimates** today's value from the price when new, reduced for age and mileage by a simple rule. The price when new is the manufacturer's price (MSRP) the inspector types in, or the base price NHTSA holds for the VIN (it has one for very few vehicles), or else a small table of **sample numbers that are not real data**. No free service was found that returns the manufacturer's price for any VIN, so that needs a paid provider. To plug in Black Book, J.D. Power, auction data or another source:
 
 1. Add a file such as `app/pricing/blackbook.py` with a class that has `get_value()`. Read its API key from an environment variable.
 2. Add one line to `PROVIDERS` in `app/pricing/__init__.py`.
@@ -142,7 +142,7 @@ For real customs data, your organisation will probably require hosting on its ow
 
 ## Known limits
 
-- Market values are sample data until a real provider is connected.
+- Market values are rough estimates, or sample data, until a real provider is connected. The manufacturer's price usually has to be typed in.
 - The starting exchange rates are samples. Enter the official customs rates in Settings; the inspector can also set the rate per check.
 - The NHTSA database mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
 - Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.

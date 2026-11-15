@@ -227,16 +227,30 @@ async def vin_check(request: Request):
     return report
 
 
+def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | None,
+                  new_price: float | None):
+    """Ask the pricing provider. The manufacturer's price when new comes from
+    the inspector if typed in, otherwise from NHTSA when it has one."""
+    source = "entered by inspector"
+    if not new_price:
+        result = validate_vin(vin)
+        decoded = vpic.decode_vin(result.vin) if result.is_standard else {}
+        new_price, source = decoded.get("base_price"), "from NHTSA"
+    return get_provider().get_value(vin=vin, make=make, model=model, year=year, mileage=mileage,
+                                    new_price=new_price, new_price_source=source)
+
+
 @app.post("/api/market-value")
 async def market_value(request: Request):
     body = await request.json()
     try:
         year = int(body.get("year") or 0)
         mileage = int(body["mileage"]) if body.get("mileage") not in (None, "") else None
+        new_price = float(str(body["new_price"]).replace(",", "")) if body.get("new_price") not in (None, "") else None
     except (TypeError, ValueError):
-        raise HTTPException(422, "Year and mileage must be numbers.")
-    value = get_provider().get_value(vin=str(body.get("vin", "")), make=body.get("make") or "",
-                                     model=body.get("model") or "", year=year, mileage=mileage)
+        raise HTTPException(422, "Year, mileage and price must be numbers.")
+    value = _lookup_value(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
+                          year, mileage, new_price)
     return {"found": value is not None, "value": value.to_dict() if value else None}
 
 
@@ -266,6 +280,7 @@ async def create_check(
     seller: str = Form(""), buyer: str = Form(""), mileage: str = Form(""), incoterm: str = Form(""),
     declared_price: str = Form(""), currency: str = Form("USD"), exchange_rate: str = Form(""),
     market_value: str = Form(""), market_source: str = Form(""), use_provider: str = Form(""),
+    new_price: str = Form(""),
     notes: str = Form(""),
     document: UploadFile | None = File(None), vin_plate: UploadFile | None = File(None),
 ):
@@ -290,9 +305,9 @@ async def create_check(
     market = _number(market_value, "Market value")
     if use_provider == "1":
         # Ask the provider again on the server instead of trusting the browser.
-        found = get_provider().get_value(vin=validation["vin"], make=make, model=model,
-                                         year=int(year_n or 0),
-                                         mileage=int(mileage_n) if mileage_n is not None else None)
+        found = _lookup_value(validation["vin"], make, model, int(year_n or 0),
+                              int(mileage_n) if mileage_n is not None else None,
+                              _number(new_price, "Manufacturer's price"))
         if found:
             market, low, high, market_source = found.value, found.low, found.high, found.source
     elif market is not None:
@@ -317,7 +332,7 @@ async def create_check(
         "declared_price": price, "currency": currency, "exchange_rate": rate, "base_currency": base,
         "declared_base": result.declared_base, "market_value": result.market_value,
         "market_low": low, "market_high": high,
-        "market_source": market_source.strip()[:200] if result.market_value else None,
+        "market_source": market_source.strip()[:300] if result.market_value else None,
         "diff_pct": result.diff_pct, "flag": result.flag, "flag_label": result.label,
         "explanation": "\n".join(result.explanation),
         "green_threshold": settings["green_threshold"], "yellow_threshold": settings["yellow_threshold"],

@@ -244,9 +244,11 @@
     try {
       const r = await postJson("/api/market-value", {
         vin: $("vin").value, make: $("make").value, model: $("model").value,
-        year: $("year").value, mileage: $("mileage").value });
+        year: $("year").value, mileage: $("mileage").value, new_price: $("newPrice").value });
       if (!r.found) {
-        box.replaceChildren(note("warn", "No reference value found for this vehicle. Type one in below if you have a source."));
+        box.replaceChildren(note("warn", $("year").value
+          ? "No price is on file for this vehicle. Enter the manufacturer's price when new above and tap again, or type a market value below."
+          : "Enter the vehicle's year on the previous step first."));
         return;
       }
       const v = r.value;
@@ -255,7 +257,7 @@
       $("source").value = v.source;
       useProvider = true;
       box.replaceChildren(note("good",
-        `${money(v.value)} ${v.currency} (typical range ${money(v.low)} to ${money(v.high)}). Source: ${v.source}.`));
+        `About ${money(v.value)} ${v.currency} today (typical range ${money(v.low)} to ${money(v.high)}). ${v.source}.`));
     } catch (error) {
       box.replaceChildren(note("bad", error.message));
     }
@@ -269,7 +271,7 @@
     const fields = { vin: "vin", make: "make", model: "model", year: "year", seller: "seller",
       buyer: "buyer", mileage: "mileage", incoterm: "incoterm", declared_price: "price",
       currency: "currency", exchange_rate: "rate", market_value: "market",
-      market_source: "source", notes: "notes" };
+      market_source: "source", notes: "notes", new_price: "newPrice" };
     Object.entries(fields).forEach(([name, id]) => form.append(name, $(id).value));
     form.append("use_provider", useProvider ? "1" : "");
     if (photos.doc) form.append("document", photos.doc, "document.jpg");

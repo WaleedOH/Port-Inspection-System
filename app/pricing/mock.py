@@ -1,7 +1,10 @@
-"""Mock pricing provider: SAMPLE VALUES ONLY, not real market data.
+"""Stand-in pricing provider, used until a paid market-data provider exists.
 
-It lets the whole app be tried end-to-end before a paid provider exists.
-Value = sample new price, reduced for age (and mileage when known).
+It ESTIMATES today's value from the price when new, reduced for age (and
+mileage when known). The price when new comes from, in order:
+  1. the manufacturer's price (MSRP) the inspector typed in, or the base
+     price NHTSA holds for the VIN (rare);
+  2. a small table of SAMPLE prices below, which are not real data.
 """
 from datetime import date
 
@@ -30,36 +33,50 @@ def _key(text: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
+def estimate_current_value(new_price: float, year: int, mileage: int | None, today: date) -> float:
+    """Rough used-car value: -18% in the first year, then -10% a year, never
+    below 8% of the new price; +/-1% per 5,000 miles from typical, max 20%."""
+    age = max(0, today.year - year)
+    factor = 1.0 if age == 0 else 0.82 * (0.90 ** (age - 1))
+    value = new_price * max(factor, 0.08)
+    if mileage is not None and age > 0:
+        expected = age * 12000  # miles a typical car has at this age
+        value *= 1 + max(-0.20, min(0.20, (expected - mileage) / 5000 * 0.01))
+    return round(value, -2)
+
+
 class MockPricingProvider:
     name = "Mock sample data (not real market prices)"
 
     def __init__(self, today: date | None = None):
         self._today = today
 
-    def get_value(self, *, vin: str = "", make: str, model: str, year: int,
-                  mileage: int | None = None) -> MarketValue | None:
+    def get_value(self, *, vin: str = "", make: str = "", model: str = "", year: int = 0,
+                  mileage: int | None = None, new_price: float | None = None,
+                  new_price_source: str = "") -> MarketValue | None:
         today = self._today or date.today()
-        make_k, model_k = _key(make or ""), _key(model or "")
-        if not make_k or not model_k or not year:
+        if not year:
             return None
-        new_price = None
+        if new_price and new_price > 0:
+            source = (f"Estimate from the manufacturer's price when new "
+                      f"({new_price:,.0f} USD, {new_price_source or 'entered by inspector'}), "
+                      "reduced for age and mileage by a simple rule")
+        else:
+            new_price = self._sample_price(make, model)
+            source = self.name
+        if not new_price:
+            return None
+        value = estimate_current_value(new_price, int(year), mileage, today)
+        return MarketValue(value=value, low=round(value * 0.85, -2), high=round(value * 1.15, -2),
+                           currency="USD", source=source, as_of=today.isoformat())
+
+    @staticmethod
+    def _sample_price(make: str, model: str) -> float | None:
+        make_k, model_k = _key(make or ""), _key(model or "")
+        if not make_k or not model_k:
+            return None
         for (m, mdl), price in SAMPLE_NEW_PRICES.items():
             # "Camry LE" should still match "camry"; "F150" should match "f-150".
             if _key(m) == make_k and (_key(mdl) in model_k or model_k in _key(mdl)):
-                new_price = price
-                break
-        if new_price is None:
-            return None
-
-        age = max(0, today.year - int(year))
-        # Simple depreciation: -18% in year one, then -10% a year, floor at 8%.
-        factor = 1.0 if age == 0 else 0.82 * (0.90 ** (age - 1))
-        value = new_price * max(factor, 0.08)
-        if mileage is not None and age > 0:
-            expected = age * 12000          # miles a typical car has at this age
-            # +/- 1% of value per 5,000 miles away from typical, capped at 20%.
-            adjustment = max(-0.20, min(0.20, (expected - mileage) / 5000 * 0.01))
-            value *= 1 + adjustment
-        value = round(value, -2)
-        return MarketValue(value=value, low=round(value * 0.85, -2), high=round(value * 1.15, -2),
-                           currency="USD", source=self.name, as_of=today.isoformat())
+                return price
+        return None

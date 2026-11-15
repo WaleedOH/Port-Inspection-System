@@ -98,7 +98,7 @@ tests/
 The app is independent: it decodes VINs by itself. `app/vehicle_data/vehicles.db.gz` (about 11 MB) is a copy of NHTSA's public vPIC data, the same data behind the NHTSA online decoder, trimmed to what the app uses. `app/offline_vin.py` reads it.
 
 - On 5,000 real VINs it returned the right make, model and year for 4,992 (99.8%), in under a millisecond each.
-- Against live NHTSA answers for the 40 real test VINs, 597 of 600 detail fields carried the same information. (The copy files some trim names under "series"; the app handles both.)
+- Against live NHTSA answers for the 40 real test VINs, 570 of 600 detail fields were identical. Of the 30 that differed, 27 were trim or series names filed or worded differently (for example "Denali AWD" under series instead of "Denali" under trim; the app compares against both), and 3 were an engine size or drive type missing from the copy.
 - The data is a snapshot. To refresh it for new model years, run `python scripts/build_vehicle_db.py path/to/vpic.lite.db` (the script explains where to get the file) and commit the result.
 - `VIN_DECODER=offline` is the default. `online` asks the NHTSA service instead; `both` uses the built-in database first and NHTSA only when it has no details.
 

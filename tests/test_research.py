@@ -76,9 +76,9 @@ def test_refusal_and_paused_search(online):
 
 def test_lookup_chain_own_data_first_then_online_then_stored(online, monkeypatch):
     monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
-        "available": True, "make": "Saab", "model": "9-3", "year": 2008, "trim": "Aero",
+        "available": True, "make": "Jeep", "model": "Wrangler", "year": 2008, "trim": "Aero",
         "specs": {"Engine": "2.8L 6-cyl"}, "clean": True, "message": None})
-    saab = {"vin": "YS3FH41U481000001", "make": "Saab", "model": "9-3", "year": "2008", "trim": "Aero"}
+    saab = {"vin": "YS3FH41U481000001", "make": "Jeep", "model": "Wrangler", "year": "2008", "trim": "Aero"}
     url = "https://www.saabusa.com/2008-9-3-pricing"
     online.use(reply('{"msrp": 41000, "trim_matched": false, "source_urls": ["%s"], "note": "Base model price"}' % url, (url,)))
     with TestClient(app) as c:
@@ -91,7 +91,7 @@ def test_lookup_chain_own_data_first_then_online_then_stored(online, monkeypatch
         second = c.post("/api/market-value", json={**saab, "vin": "YS3FH41U481999999"}).json()
         assert "from our price book" in second["value"]["source"] and "not yet confirmed" in second["value"]["source"]
         assert len(online.calls) == 1
-        page = c.get("/prices?q=saab").text
+        page = c.get("/prices?q=wrangler").text
         assert "Found online, not yet confirmed" in page and url in page
         # An administrator confirms it; the warning disappears.
         price_id = page.split("/prices/")[1].split("/confirm")[0]
@@ -106,5 +106,5 @@ def test_online_search_is_off_by_default(monkeypatch):
     assert research.enabled() is False
     with TestClient(app) as c:
         c.post("/login", data={"username": "admin", "password": "test-password-123"})
-        r = c.post("/api/market-value", json={"vin": "ZFF76ZFA5E0200001", "make": "Ferrari", "model": "458", "year": "2014"}).json()
+        r = c.post("/api/market-value", json={"vin": "ZFF76ZFA5E0200001", "make": "Zastava", "model": "Yugo", "year": "2014"}).json()
         assert r["found"] is False and r["searches_online"] is False

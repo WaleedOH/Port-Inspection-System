@@ -96,13 +96,13 @@ def test_full_check_is_saved_searchable_and_exported(logged_in):
     assert logged_in.get("/photos/..%2Fapp.db").status_code == 404
 
 
-def test_mock_provider_value_is_recomputed_on_server(logged_in):
+def test_expected_value_is_recomputed_on_server(logged_in):
     r = logged_in.post("/api/checks", data={
-        "vin": VIN, "make": "Honda", "model": "Accord", "year": "2003", "declared_price": "2500",
+        "vin": VIN, "make": "GMC", "model": "Terrain", "year": "2015", "declared_price": "2500",
         "currency": "USD", "market_value": "1", "use_provider": "1"})
     page = logged_in.get(r.json()["url"]).text
-    assert "Mock sample data" in page          # browser-sent value "1" was ignored
-    assert "typical range" in page
+    assert "reference price list" in page      # browser-sent value "1" was ignored
+    assert "typical range" in page and "Mock sample data" not in page
 
 
 def test_foreign_currency_and_no_market_value(logged_in):
@@ -152,7 +152,7 @@ def test_non_admin_cannot_change_settings(logged_in):
 
 def test_value_estimated_from_manufacturer_price(logged_in, monkeypatch):
     # Not in the sample table, no price typed: nothing found.
-    body = {"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012"}
+    body = {"vin": VIN, "make": "Zastava", "model": "Yugo", "year": "2012"}   # not in any price list
     assert logged_in.post("/api/market-value", json=body).json()["found"] is False
     # Inspector types the MSRP: an estimate comes back.
     r = logged_in.post("/api/market-value", json={**body, "new_price": "31,300"}).json()
@@ -164,7 +164,7 @@ def test_value_estimated_from_manufacturer_price(logged_in, monkeypatch):
     r = logged_in.post("/api/market-value", json={"vin": VIN, "make": "MINI", "model": "Cooper", "year": "2006"}).json()
     assert r["found"] and "17,450 USD, from our vehicle database" in r["value"]["source"]
     # And the saved check records where the value came from.
-    saved = logged_in.post("/api/checks", data={"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012",
+    saved = logged_in.post("/api/checks", data={"vin": VIN, "make": "Zastava", "model": "Yugo", "year": "2012",
                                                 "declared_price": "500", "use_provider": "1", "new_price": "31300"})
     assert "31,300 USD, entered by inspector" in logged_in.get(saved.json()["url"]).text
 
@@ -223,22 +223,22 @@ def test_vin_pattern():
 
 
 def test_price_book_learns_from_inspector_and_is_reused(logged_in):
-    first, second = "1FAHP2FW5CG103485", "1FAHP2FW9CG555555"     # same model/trim/year
-    car = {"make": "Ford", "model": "Taurus", "trim": "Limited", "year": "2012"}
+    first, second = "1C4NJRBB4ED771602", "1C4NJRBB0ED555555"     # same model/trim/year
+    car = {"make": "Jeep", "model": "Patriot", "trim": "Sport", "year": "2014"}   # Jeep is not in the built-in list
     # Nothing known yet for this car.
     assert logged_in.post("/api/market-value", json={"vin": second, **car}).json()["found"] is False
     # Inspector types the manufacturer's price while checking the first car.
     logged_in.post("/api/checks", data={"vin": first, **car, "declared_price": "9000",
-                                        "use_provider": "1", "new_price": "32,950"})
+                                        "use_provider": "1", "new_price": "16,395"})
     # The second car of the same pattern now gets it automatically.
     r = logged_in.post("/api/market-value", json={"vin": second, **car}).json()
-    assert r["found"] and r["value"]["new_price"] == 32950
+    assert r["found"] and r["value"]["new_price"] == 16395
     assert "from our price book, matched by VIN pattern; added by admin" in r["value"]["source"]
-    page = logged_in.get("/prices?q=taurus").text
-    assert "2012 Ford Taurus Limited" in page and "32,950" in page and "Typed in during check" in page
+    page = logged_in.get("/prices?q=patriot").text
+    assert "2014 Jeep Patriot Sport" in page and "16,395" in page and "Typed in during check" in page
     # Saving the second car does not create a duplicate entry.
     logged_in.post("/api/checks", data={"vin": second, **car, "declared_price": "9100", "use_provider": "1"})
-    assert logged_in.get("/prices?q=taurus").text.count("2012 Ford Taurus Limited") == 1
+    assert logged_in.get("/prices?q=patriot").text.count("2014 Jeep Patriot Sport") == 1
 
 
 def test_price_book_add_import_match_and_delete(logged_in):
@@ -287,13 +287,13 @@ def test_comparison_with_earlier_declarations(logged_in):
 # ---------- the one-step lookup ----------
 def test_one_step_lookup_returns_vehicle_and_expected_price(logged_in, monkeypatch):
     monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
-        "available": True, "make": "Lincoln", "model": "Zephyr", "year": 2006, "trim": "Zephyr", "series": None,
+        "available": True, "make": "Jeep", "model": "Liberty", "year": 2006, "trim": "Sport", "series": None,
         "base_price": None, "clean": True, "message": None, "source": "own database",
         "specs": {"Engine": "3.0L 6-cyl", "Drive": "FWD/Front-Wheel Drive"}})
     vin = "3LNHM261X6R633550"
     # Only the VIN is sent. The vehicle comes back; no price is stored yet.
     r = logged_in.post("/api/lookup", json={"vin": vin}).json()
-    assert r["validation"]["ok"] and r["decoded"]["model"] == "Zephyr" and r["decoded"]["specs"]["Engine"]
+    assert r["validation"]["ok"] and r["decoded"]["model"] == "Liberty" and r["decoded"]["specs"]["Engine"]
     assert r["value"] is None and r["mismatches"] == []
     # Give the manufacturer's price once...
     r = logged_in.post("/api/lookup", json={"vin": vin, "new_price": "29,660"}).json()
@@ -304,7 +304,7 @@ def test_one_step_lookup_returns_vehicle_and_expected_price(logged_in, monkeypat
     # Saving needs only the VIN and the declared price.
     saved = logged_in.post("/api/checks", data={"vin": vin, "declared_price": "900", "use_provider": "1"})
     page = logged_in.get(saved.json()["url"]).text
-    assert "Needs review" in page and "29,660 USD" in page and "2006 Lincoln Zephyr" in page
+    assert "Needs review" in page and "29,660 USD" in page and "2006 Jeep Liberty" in page
 
 
 def test_one_step_lookup_with_a_bad_vin(logged_in):
@@ -378,3 +378,34 @@ def test_scripts_and_styles_carry_a_version_so_phones_load_updates(logged_in):
     page = logged_in.get("/").text
     assert f'/static/app.js?v={ASSET_VERSION}"' in page and f'/static/style.css?v={ASSET_VERSION}"' in page
     assert logged_in.get(f"/static/app.js?v={ASSET_VERSION}").status_code == 200
+
+
+# ---------- the built-in reference price list ----------
+def test_reference_price_list_gives_a_range_from_the_vin_alone(logged_in, own_database):
+    # Real 2013 GMC Terrain Denali AWD: nothing typed, nothing in the price book.
+    r = logged_in.post("/api/lookup", json={"vin": "2GKFLZE39D6253778"}).json()
+    value = r["value"]
+    assert value and value["new_price_low"] < value["new_price"] < value["new_price_high"]
+    assert 20000 < value["new_price_low"] and value["new_price_high"] < 45000
+    assert "reference price list" in value["source"] and "all-wheel drive" in value["source"]
+    assert "nearest year on file" in value["source"]          # the list has 2015, not 2013
+    assert value["low"] < value["value"] < value["high"]
+    # A price in our own price book still wins over the built-in list.
+    logged_in.post("/prices", data={"make": "GMC", "model": "Terrain", "trim": "Denali AWD", "year": "2013",
+                                    "msrp": "36275", "vin": "2GKFLZE39D6253778"})
+    again = logged_in.post("/api/lookup", json={"vin": "2GKFLZE39D6253778"}).json()["value"]
+    assert again["new_price"] == 36275 and "from our price book" in again["source"]
+
+
+def test_reference_price_matching_rules():
+    from app import reference_prices as rp
+    assert rp.count() > 9000
+    exact = rp.find("GMC", "Terrain", 2015)
+    awd = rp.find("gmc", "TERRAIN", 2015, {"Drive": "AWD/All-Wheel Drive"})
+    assert not exact.adjusted and awd.versions < exact.versions and awd.narrowed_by == ["all-wheel drive"]
+    assert rp.find("BMW", "328i", 2015).low > 25000            # '328i' is a '3 Series'
+    assert rp.find("Mazda", "Mazda3", 2015) is not None
+    older = rp.find("GMC", "Terrain", 2013)
+    assert older.adjusted and older.typical < exact.typical     # scaled back two model years
+    assert rp.find("Zastava", "Yugo", 2015) is None
+    assert rp.find("GMC", "Terrain", 2030) is None              # too far from any year on file

@@ -54,33 +54,48 @@ def estimate_current_value(new_price: float, year: int, mileage: int | None, tod
 
 
 class MockPricingProvider:
-    name = "Mock sample data (not real market prices)"
+    name = "Estimate from the manufacturer's price when new and the depreciation schedule"
+    sample_name = "Mock sample data (not real market prices)"
 
     def __init__(self, today: date | None = None, schedule: list[float] | None = None,
-                 adjust_for_mileage: bool = True):
+                 adjust_for_mileage: bool = True, use_samples: bool = False):
         self._today = today
         self._schedule = schedule
         self._mileage = adjust_for_mileage
+        # The made-up sample table is only for trying the code without any data.
+        # The app itself never uses it: real prices come from our own lists.
+        self._use_samples = use_samples
 
     def get_value(self, *, vin: str = "", make: str = "", model: str = "", year: int = 0,
                   mileage: int | None = None, new_price: float | None = None,
-                  new_price_source: str = "") -> MarketValue | None:
+                  new_price_source: str = "",
+                  new_price_range: tuple[float, float] | None = None) -> MarketValue | None:
         today = self._today or date.today()
         if not year:
             return None
         basis = new_price if new_price and new_price > 0 else None
         if new_price and new_price > 0:
+            shown = (f"{new_price_range[0]:,.0f} to {new_price_range[1]:,.0f}"
+                     if new_price_range and new_price_range[0] != new_price_range[1] else f"{new_price:,.0f}")
             source = (f"Estimate from the manufacturer's price when new "
-                      f"({new_price:,.0f} USD, {new_price_source or 'entered by inspector'}), "
+                      f"({shown} USD, {new_price_source or 'entered by inspector'}), "
                       "reduced for age using the depreciation schedule in Settings")
         else:
-            new_price = self._sample_price(make, model)
-            source = self.name
+            new_price = self._sample_price(make, model) if self._use_samples else None
+            source = self.sample_name
         if not new_price:
             return None
-        value = estimate_current_value(new_price, int(year), mileage, today, self._schedule, self._mileage)
-        return MarketValue(value=value, low=round(value * 0.85, -2), high=round(value * 1.15, -2),
-                           currency="USD", source=source, as_of=today.isoformat(), new_price=basis)
+        estimate = lambda price: estimate_current_value(  # noqa: E731
+            price, int(year), mileage, today, self._schedule, self._mileage)
+        value = estimate(new_price)
+        low, high = round(value * 0.85, -2), round(value * 1.15, -2)
+        if basis and new_price_range:
+            # Several versions share this VIN's details: widen the range to cover them.
+            low, high = min(low, estimate(new_price_range[0])), max(high, estimate(new_price_range[1]))
+        return MarketValue(value=value, low=low, high=high, currency="USD", source=source,
+                           as_of=today.isoformat(), new_price=basis,
+                           new_price_low=new_price_range[0] if basis and new_price_range else None,
+                           new_price_high=new_price_range[1] if basis and new_price_range else None)
 
     @staticmethod
     def _sample_price(make: str, model: str) -> float | None:

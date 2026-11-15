@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, research, vpic
+from . import config, db, reference_prices, research, vpic
 from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
@@ -254,7 +254,8 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
 
     The manufacturer's price when new is looked for in this order:
       1. typed in by the inspector for this check;
-      2. OUR OWN stored data: the price book, then the vehicle database;
+      2. OUR OWN stored data: the price book, the vehicle database, then the
+         reference price list that ships with the app;
       3. ONLINE search (if switched on). What it finds is saved in the price
          book with its web sources, so step 2 answers next time.
     """
@@ -271,6 +272,12 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
                 source += "; found online, not yet confirmed"
     if not new_price and decoded.get("base_price"):
         new_price, source = decoded["base_price"], "from our vehicle database"
+    price_range = None
+    if not new_price:
+        listed = reference_prices.find(make, model, year, decoded.get("specs"))
+        if listed:
+            new_price, price_range = listed.typical, (listed.low, listed.high)
+            source = listed.describe(year)
     if not new_price and research.enabled() and make and model and year:
         details = ", ".join(f"{k}: {v}" for k, v in (decoded.get("specs") or {}).items())
         found, note = research.find_msrp(year=year, make=make, model=model,
@@ -285,7 +292,8 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
                          vin_pattern=pattern, added_by=user, verified=False,
                          source=f"Found online: {' '.join(found.urls)}. {found.note}")
     value = get_provider().get_value(vin=vin, make=make, model=model, year=year, mileage=mileage,
-                                     new_price=new_price, new_price_source=source)
+                                     new_price=new_price, new_price_source=source,
+                                     new_price_range=price_range)
     return value, note
 
 
@@ -666,6 +674,7 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
                 schedule_text=schedule_text,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
                 decoder=vpic.decoder_name(), research_on=research.enabled(),
+                reference_count=reference_prices.count(),
                 storage="PostgreSQL database (permanent)" if db.is_postgres() else
                         ("SQLite file in temporary storage (erased regularly)" if config.is_ephemeral()
                          else "SQLite file in the data folder"))

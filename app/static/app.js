@@ -109,7 +109,11 @@
       $("priceToday").textContent = `About ${money(value.value)} ${value.currency}`;
       $("priceRange").textContent = `${money(value.low)} to ${money(value.high)} ${value.currency}`;
       $("priceNewLine").hidden = !value.new_price;
-      if (value.new_price) $("priceNew").textContent = `${money(value.new_price)} ${value.currency}`;
+      if (value.new_price) {
+        $("priceNew").textContent = value.new_price_low && value.new_price_low !== value.new_price_high
+          ? `${money(value.new_price_low)} to ${money(value.new_price_high)} ${value.currency}`
+          : `${money(value.new_price)} ${value.currency}`;
+      }
       $("priceSource").textContent = value.source + ".";
     } else if (v.ok) {
       $("priceMissingNote").textContent = (r.note || "No price is stored for this vehicle yet"

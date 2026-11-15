@@ -17,6 +17,8 @@ class MarketValue:
     source: str             # shown to the inspector and saved with the check
     as_of: str              # date of the data
     new_price: float | None = None  # manufacturer's price when new, if that was the basis
+    new_price_low: float | None = None   # range of that price across matching versions
+    new_price_high: float | None = None
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -27,7 +29,8 @@ class PricingProvider(Protocol):
 
     def get_value(self, *, vin: str, make: str, model: str, year: int,
                   mileage: int | None = None, new_price: float | None = None,
-                  new_price_source: str = "") -> MarketValue | None:
+                  new_price_source: str = "",
+                  new_price_range: tuple[float, float] | None = None) -> MarketValue | None:
         """Return a market value, or None if this vehicle is not covered.
 
         new_price is the manufacturer's price when the car was new (MSRP), if

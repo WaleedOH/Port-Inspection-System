@@ -10,7 +10,7 @@ The main screen does one thing: **scan or type a VIN, and see the vehicle and it
 
 1. **VIN.** Scan the barcode on the VIN sticker with the camera, or type the 17 characters, and tap "Look up".
 2. **Vehicle.** The app checks the VIN (length, no I/O/Q, check digit) and shows how the factory built the car: year, make, model, trim, engine, drive type, body. This comes from its own built-in vehicle database. If the check digit fails, it offers "did you mean?" fixes for look-alike characters.
-3. **Expected price.** It shows the manufacturer's price when new and an estimate of today's value with a typical range, and says where the figures come from. If no price is stored for that model yet, it asks for the manufacturer's price once and remembers it.
+3. **Expected price.** It shows the manufacturer's price when new and an estimate of today's value with a typical range, and says where the figures come from. Prices come from the app's own built-in price list. For a model that is not in it, the app asks for the manufacturer's price once and remembers it.
 4. **Compare (optional).** Type the declared price and tap "Compare and save". The result page shows the difference in %, a flag, and a plain-language "Why this flag?" explanation, and can be printed or saved as PDF.
 
 Built around that, without adding steps:
@@ -138,9 +138,21 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 | | 1. Own stored data | 2. Online, only if missing | Then |
 |---|---|---|---|
 | **Vehicle details** | Built-in vehicle database | NHTSA online service | Answer is kept in the app's database |
-| **Manufacturer's price** | Price book, then vehicle database | Web search (optional, see below) | Saved in the price book with its web sources, marked "found online, not yet confirmed" until an administrator confirms it |
+| **Manufacturer's price** | Price book, vehicle database, then the built-in reference price list | Web search (optional, see below) | Saved in the price book with its web sources, marked "found online, not yet confirmed" until an administrator confirms it |
 
 **Online price search** is off by default. To switch it on, set `PRICE_RESEARCH=claude` and `ANTHROPIC_API_KEY` (a paid Anthropic account). The app then asks Claude to search the web for the manufacturer's price of the exact year, make, model and trim. It only accepts an answer that is a sensible price **and** cites a page that really came up in the search; otherwise it reports "not found". Only the vehicle description is sent, never the VIN, seller or buyer. This step has been tested with a stand-in for the search service, not yet against the live one.
+
+### The app's own reference price list
+
+The app ships with **10,086 manufacturer prices** (MSRP when new) for US-market cars, model years 1990 to 2017, in `app/vehicle_data/reference_prices.csv.gz`. `app/reference_prices.py` reads it, so a price appears from the VIN alone, with nothing typed and no internet.
+
+- The list has engine, cylinders and drive type for each version, but **no trim names**. So the app finds the versions of the same make, model and year, narrows them with what the VIN says (cylinders, drive, horsepower), and shows the **range** of prices that remain.
+- When the exact model year is not on file, it uses the nearest year within 5 years, scales the price by 1.5% a year, and says so.
+- On 4,000 real VINs (mostly model years 2003 to 2015) it found a price for 75%. Only 15% were the exact model year; the rest were adjusted from a nearby year. The price range was within 19% of the typical price for half of them.
+- Whole makes are missing (Jeep, Ram and MINI among them), and there is nothing after 2017.
+- A price in the price book (below) always wins over this list.
+
+**Where it comes from:** the open "Car Features and MSRP" dataset, originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds the file, and newer model years can be added as extra rows with the same columns.
 
 ### The app's own vehicle database
 
@@ -159,7 +171,7 @@ The price is not inside a VIN; manufacturers publish it separately for each mode
 
 - **It fills itself.** When an inspector types a manufacturer's price during a check, it is saved against the car's *VIN pattern* (characters 1–8 and 10, which identify model, trim, engine and year). Every later car with the same pattern gets that price automatically.
 - **Administrators can add prices or import a list** as a CSV file with the columns `make, model, year, msrp` and optionally `trim, vin, source`.
-- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then the vehicle database, then online search if it is switched on.
+- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then the vehicle database, then the built-in reference price list, then online search if it is switched on.
 - **Every entry records who added it, when, and from what source,** and administrators can remove wrong ones. An entry typed in by mistake would affect later checks until it is removed.
 
 Each result also shows **earlier declarations at this port** for the same VIN pattern, once at least 3 other cars have been checked.
@@ -168,7 +180,7 @@ Each result also shows **earlier declarations at this port** for the same VIN pa
 
 `app/pricing/base.py` defines the interface: one method, `get_value(vin, make, model, year, mileage)`, which returns a value, a low–high range, a source and a date.
 
-Today there is only `mock.py`. It **estimates** today's value from the price when new, reduced for age and mileage by a simple rule. The price when new is the manufacturer's price (MSRP) the inspector types in, or the base price NHTSA holds for the VIN (it has one for very few vehicles), or else a small table of **sample numbers that are not real data**. No free service was found that returns the manufacturer's price for any VIN, so that needs a paid provider. To plug in Black Book, J.D. Power, auction data or another source:
+Today there is only `mock.py`. It **estimates** today's value from the manufacturer's price when new, reduced for age by the depreciation schedule in Settings. It never invents a price: the price when new comes from the app's own lists or from the inspector. A real market-value provider would replace this estimate.
 
 1. Add a file such as `app/pricing/blackbook.py` with a class that has `get_value()`. Read its API key from an environment variable.
 2. Add one line to `PROVIDERS` in `app/pricing/__init__.py`.
@@ -223,7 +235,7 @@ For real customs data, your organisation will probably require hosting on its ow
 
 ## Known limits
 
-- Market values are rough estimates, or sample data, until a real provider is connected. The manufacturer's price usually has to be typed in.
+- Today's value is an estimate from the price when new and a depreciation schedule, not market data. The built-in price list covers model years 1990 to 2017 only, and many prices are adjusted from a nearby model year.
 - The starting exchange rates are samples. Enter the official customs rates in Settings; the inspector can also set the rate per check.
 - The vehicle database (NHTSA data) mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
 - Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.

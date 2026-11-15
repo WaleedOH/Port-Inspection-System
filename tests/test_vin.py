@@ -62,3 +62,13 @@ def test_model_year_from_tenth_character():
     assert possible_model_years("1HGCM82633A004352") == [2003]
     assert possible_model_years("1M8GDM9AXKP042788") == [1989, 2019]
     assert possible_model_years("5YJSA1E27HF000337") == [1987, 2017]
+
+
+def test_lookalike_suggestions_when_check_digit_fails():
+    # The camera read "5" as "S" (position 15): one swap restores a valid VIN.
+    assert "1HGCM82633A004352" in validate_vin("1HGCM82633A0043S2").suggestions
+    # Letters O/I/Q typed by mistake: offer the digit version when it checks out.
+    assert validate_vin("1HGCM82633AOO4352").suggestions == ["1HGCM82633A004352"]
+    # Every suggestion must itself be a fully valid VIN.
+    for s in validate_vin("1HGCM82633A0043S2").suggestions:
+        assert validate_vin(s).check_digit_ok

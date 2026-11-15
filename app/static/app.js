@@ -3,6 +3,7 @@
   const config = JSON.parse(document.getElementById("config").textContent);
   const $ = (id) => document.getElementById(id);
   const photos = { doc: null, vin: null }; // resized photos, ready to upload
+  let scannedVin = "";                     // VIN read from a barcode, if any
   let useProvider = false;                 // true while the looked-up value is untouched
 
   // ---------- small helpers ----------
@@ -68,7 +69,7 @@
   wirePhoto("vinPhoto", "vinPreview", "vin");
 
   // ---------- step 1: read the photo ----------
-  async function ocr(blob, label) {
+  async function ocr(blob, label, vinOnly = false) {
     const worker = await Tesseract.createWorker("eng", 1, {
       workerPath: "/static/vendor/tesseract/worker.min.js",
       corePath: "/static/vendor/tesseract",
@@ -81,6 +82,8 @@
       },
     });
     try {
+      // For the VIN plate, only allow characters a VIN can contain (no I, O, Q).
+      if (vinOnly) await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHJKLMNPRSTUVWXYZ0123456789" });
       return (await worker.recognize(blob)).data.text;
     } finally {
       await worker.terminate();
@@ -96,9 +99,16 @@
     let message = "";
     try {
       const form = new FormData();
+      // A barcode is the most reliable source for the VIN, so look for one first.
+      if (!scannedVin) {
+        $("progress").textContent = "Looking for a VIN barcode";
+        for (const photo of [photos.vin, photos.doc]) {
+          if (photo && !scannedVin) setScannedVin(await VinBarcode.fromImage(photo));
+        }
+      }
       if (config.needsBrowserOcr) {
         if (photos.doc) form.append("document_text", await ocr(photos.doc, "the document"));
-        if (photos.vin) form.append("vin_plate_text", await ocr(photos.vin, "the VIN plate"));
+        if (photos.vin && !scannedVin) form.append("vin_plate_text", await ocr(photos.vin, "the VIN plate", true));
       } else {
         if (photos.doc) form.append("document", photos.doc, "document.jpg");
         if (photos.vin) form.append("vin_plate", photos.vin, "vin.jpg");
@@ -106,6 +116,7 @@
       $("progress").textContent = "Finding the fields";
       const result = await api("/api/read-document", { method: "POST", body: form });
       fillForm(result.fields || {});
+      if (scannedVin) $("vin").value = scannedVin;
       const found = Object.values(result.fields || {}).filter((v) => v !== null && v !== "").length;
       message = result.error || (found
         ? "These fields were read automatically. Reading is never perfect: compare every field with the paper and correct mistakes."
@@ -120,6 +131,35 @@
     showStep(2);
     if ($("vin").value) checkVin();
   });
+
+  // ---------- VIN barcode scanning ----------
+  function setScannedVin(vin) {
+    if (!vin) return;
+    scannedVin = vin;
+    $("vin").value = vin;
+    $("scanNote").textContent = `VIN read from barcode: ${vin}`;
+    $("scanNote").hidden = false;
+  }
+  function closeScanner() {
+    VinBarcode.stopLive();
+    $("scanner").hidden = true;
+  }
+  document.querySelectorAll("[data-scan]").forEach((button) => button.addEventListener("click", async () => {
+    $("scanner").hidden = false;
+    $("scanStatus").textContent = "Point the camera at the VIN barcode";
+    try {
+      await VinBarcode.startLive($("scanVideo"), (vin) => {
+        closeScanner();
+        setScannedVin(vin);
+        if (!$("step2").hidden) checkVin();
+      });
+    } catch {
+      closeScanner();
+      showError("The camera could not be opened. Allow camera access, or take a photo of the VIN sticker instead.");
+    }
+  }));
+  $("scanCancel").addEventListener("click", closeScanner);
+  $("vin").addEventListener("input", () => { scannedVin = ""; });
 
   $("skipBtn").addEventListener("click", () => { $("readNote").hidden = true; showStep(2); });
 
@@ -148,6 +188,14 @@
       v.errors.forEach((e) => items.push(note("bad", e)));
       if (v.is_standard && v.check_digit_ok) items.push(note("good", "VIN format and check digit are correct."));
       v.warnings.forEach((w) => items.push(note("warn", w)));
+      (v.suggestions || []).forEach((s) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn";
+        button.textContent = `Did you mean ${s}? (its check digit is correct)`;
+        button.addEventListener("click", () => { $("vin").value = s; checkVin(); });
+        items.push(button);
+      });
       const d = r.decoded;
       if (d && d.available && d.make) {
         items.push(note("", `VIN decodes to: ${[d.year, d.make, d.model || "(model not in database)"].filter(Boolean).join(" ")}`));

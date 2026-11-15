@@ -32,6 +32,7 @@ class VinResult:
     errors: list[str] = field(default_factory=list)    # must be fixed
     warnings: list[str] = field(default_factory=list)  # inspector should look
     possible_years: list[int] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)  # likely intended VINs
 
     @property
     def ok(self) -> bool:
@@ -43,6 +44,7 @@ class VinResult:
             "check_digit_ok": self.check_digit_ok, "ok": self.ok,
             "errors": self.errors, "warnings": self.warnings,
             "possible_years": self.possible_years,
+            "suggestions": self.suggestions,
         }
 
 
@@ -70,6 +72,28 @@ def possible_model_years(vin: str, latest_year: int = 2027) -> list[int]:
     return [y for y in (first, first + 30, first + 60) if y <= latest_year]
 
 
+# Characters that cameras and people often mix up.
+_LOOKALIKES = {"S": "5", "5": "S", "B": "8", "8": "B", "Z": "2", "2": "Z",
+               "G": "6", "6": "G", "D": "0", "0": "D"}
+
+
+def suggest_corrections(vin: str, limit: int = 3) -> list[str]:
+    """Suggest VINs one look-alike character away whose check digit IS correct.
+
+    These are only offered to the inspector as "did you mean?"; the VIN is
+    never changed automatically, because a failing check digit can be genuine.
+    """
+    found = []
+    for i, char in enumerate(vin):
+        swap = _LOOKALIKES.get(char)
+        if not swap:
+            continue
+        candidate = vin[:i] + swap + vin[i + 1:]
+        if candidate[8] == compute_check_digit(candidate):
+            found.append(candidate)
+    return found[:limit]
+
+
 def validate_vin(raw: str) -> VinResult:
     vin = normalize_vin(raw)
     result = VinResult(vin=vin, is_standard=False, check_digit_ok=None)
@@ -92,6 +116,9 @@ def validate_vin(raw: str) -> VinResult:
             f"A VIN never contains the letters I, O or Q (found: {', '.join(bad_letters)}). "
             "They are often misread 1 and 0."
         )
+        fixed = vin.translate(str.maketrans("IOQ", "100"))
+        if fixed[8] == compute_check_digit(fixed):
+            result.suggestions.append(fixed)
         return result
 
     result.is_standard = True
@@ -103,5 +130,6 @@ def validate_vin(raw: str) -> VinResult:
             f"gives '{expected}'. This is normal for many vehicles not built for "
             "North America, but it can also mean a typo. Compare with the VIN plate."
         )
+        result.suggestions = suggest_corrections(vin)
     result.possible_years = possible_model_years(vin)
     return result

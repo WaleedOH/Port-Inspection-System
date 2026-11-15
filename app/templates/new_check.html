@@ -15,6 +15,9 @@
       <input type="file" id="vinPhoto" accept="image/*" capture="environment">
     </label>
     <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
+    <button class="btn" type="button" data-scan="1">Scan VIN barcode with camera</button>
+    <p class="note good" id="scanNote" hidden></p>
+    <p class="muted">Most VIN stickers (door frame, windscreen) have a barcode. Scanning it is far more reliable than reading the printed characters.</p>
   </div>
   <p class="muted">Tips: lay the page flat, fill the frame, avoid glare. Reader: {{ reader.name }}.</p>
   <p class="note" id="progress" hidden></p>
@@ -29,7 +32,10 @@
     <label>VIN
       <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono">
     </label>
-    <button class="btn" id="vinBtn" type="button">Check VIN</button>
+    <div class="row">
+      <button class="btn" id="vinBtn" type="button">Check VIN</button>
+      <button class="btn" type="button" data-scan="1">Scan barcode</button>
+    </div>
     <div id="vinResult" aria-live="polite"></div>
   </div>
   <div class="card">
@@ -80,9 +86,16 @@
   <button class="btn primary" id="saveBtn" type="button">Compare and save</button>
   <button class="btn" data-back="2" type="button">Back</button>
 </section>
+<div id="scanner" class="scanner" role="dialog" aria-label="Scan VIN barcode" hidden>
+  <video id="scanVideo" playsinline muted></video>
+  <p id="scanStatus">Point the camera at the VIN barcode</p>
+  <button class="btn" id="scanCancel" type="button">Cancel</button>
+</div>
 <script type="application/json" id="config">{{ client_config | safe }}</script>
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/tesseract/tesseract.min.js"></script>
+<script src="/static/vendor/zxing/zxing-reader.js"></script>
+<script src="/static/barcode.js"></script>
 <script src="/static/app.js"></script>
 {% endblock %}

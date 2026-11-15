@@ -73,6 +73,11 @@ dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .dot { width: 18px; height: 18px; border-radius: 50%; flex: none; background: #8a96a3; }
 .dot.green { background: var(--green); } .dot.yellow { background: #e0a800; } .dot.red { background: var(--red); }
 
+.scanner { position: fixed; inset: 0; z-index: 10; background: #000; color: #fff; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.scanner video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #111; border-radius: 8px; }
+.scanner p { margin: 0; text-align: center; }
+
 @media print {
   .topbar, .tabs, .noprint { display: none !important; }
   body { background: #fff; font-size: 12pt; }

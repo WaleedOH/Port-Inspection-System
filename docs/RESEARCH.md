@@ -33,7 +33,7 @@ Earlier-stage ideas: EV battery health misdeclaration (no export standard yet), 
 ## 4. Suggested next steps for the app
 
 1. Test the reader on 30–50 real paperwork photos and record where it fails.
-2. Add VIN barcode scanning.
+2. Test VIN barcode scanning (now built in) on real door-frame and windscreen stickers.
 3. Connect one real pricing source.
 4. Show comparable vehicles behind each market value (direction 1).
 5. Add a salvage-history lookup (direction 2).

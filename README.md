@@ -8,8 +8,10 @@ A prototype web app for customs and port inspectors. The inspector photographs a
 
 1. **Photo.** The inspector takes or uploads a photo of the invoice or customs document, and optionally the VIN plate.
 2. **Reading.** The app reads the VIN, declared price, currency, make, model, year, seller, buyer, mileage and delivery term from the photo.
+   For the VIN, the app first looks for a **barcode** (live camera scan, or in the photo), which is far more reliable than reading printed characters. Without a barcode it reads the VIN plate text.
 3. **Correction.** The inspector sees every field and fixes mistakes before continuing.
 4. **VIN check.** The app checks the VIN (17 characters, no I/O/Q, check digit) and decodes it with the free [NHTSA vPIC API](https://vpic.nhtsa.dot.gov/api/).
+   When the check digit fails, it offers "did you mean?" fixes for look-alike characters (S/5, B/8, Z/2, G/6, D/0, and I/O/Q). It never changes the VIN by itself.
 5. **Mismatch warning.** It warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
 6. **Market value.** It looks up a reference value (sample data for now), or the inspector types one in with its source.
 7. **Result.** It shows declared price, market value, the difference in %, a flag, and a plain-language "Why this flag?" explanation. The page can be printed or saved as PDF.
@@ -93,7 +95,7 @@ Today there is only `mock.py`, with **sample numbers that are not real market da
 
 `app/readers/base.py` defines the interface: `read(document, vin_plate, ...)` returns the extracted fields.
 
-- **`browser-ocr`** (default, free, no account). The phone reads the text itself with [Tesseract.js](https://github.com/naptha/tesseract.js), which is included in `app/static/vendor/`, so nothing is downloaded from other sites. `readers/parser.py` then finds the fields in the text. It works best on clear, flat, printed documents and will misread poor photos.
+- **`browser-ocr`** (default, free, no account). The phone reads the text itself with [Tesseract.js](https://github.com/naptha/tesseract.js), which is included in `app/static/vendor/`, so nothing is downloaded from other sites. Barcodes are read with [zxing-wasm](https://github.com/Sec-ant/zxing-wasm), also included. `readers/parser.py` then finds the fields in the text. It works best on clear, flat, printed documents and will misread poor photos.
 - **`claude`** (optional, paid, more accurate). Claude reads the photo directly. Run `pip install anthropic`, then set `DOCUMENT_READER=claude` and `ANTHROPIC_API_KEY`. With this reader the photos are sent to Anthropic's API, so check that this is allowed for your documents. This reader has not been run against the live API yet.
 
 To add another reader, write a class with `read()` and add it to `READERS` in `app/readers/__init__.py`.

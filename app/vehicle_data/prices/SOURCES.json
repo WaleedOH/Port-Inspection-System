@@ -2,6 +2,25 @@
   "edmunds_1990_2017": {
     "name": "Car Features and MSRP dataset (Edmunds-derived, via Kaggle/CooperUnion and the qacBase R package)",
     "years": "1990-2017",
-    "url": "https://www.kaggle.com/datasets/CooperUnion/cardataset"
+    "url": "https://www.kaggle.com/datasets/CooperUnion/cardataset",
+    "market": "US"
+  },
+  "carfinder_us_2025_2027": {
+    "name": "carfinder new-car price ranges, US, compiled September 2026 from manufacturer sites (MIT licence, github.com/destinjones/carfinder)",
+    "years": "2025-2027",
+    "url": "https://github.com/destinjones/carfinder",
+    "market": "US"
+  },
+  "gtcars_2014_2017": {
+    "name": "gtcars high-end cars with trims (MIT licence, from the R package gt)",
+    "years": "2014-2017",
+    "url": "https://github.com/rstudio/gt",
+    "market": "US"
+  },
+  "qatar_2025": {
+    "name": "Qatar new-car prices 2025, converted from riyals at 3.64 (qatarcars dataset by Paul Musgrave, CC BY 4.0, mostly from YallaMotor Qatar)",
+    "years": "2025",
+    "url": "https://github.com/profmusgrave/qatarcars",
+    "market": "Qatar"
   }
 }

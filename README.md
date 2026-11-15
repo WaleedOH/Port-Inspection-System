@@ -142,15 +142,29 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 
 **Online price search** is off by default. To switch it on, set `PRICE_RESEARCH=claude` and `ANTHROPIC_API_KEY` (a paid Anthropic account). The app then asks Claude to search the web for the manufacturer's price of the exact year, make, model and trim. It only accepts an answer that is a sensible price **and** cites a page that really came up in the search; otherwise it reports "not found". Only the vehicle description is sent, never the VIN, seller or buyer. This step has been tested with a stand-in for the search service, not yet against the live one.
 
-### The app's own reference price list
+### The app's own built-in price list
 
-The app ships with **10,086 manufacturer prices** (MSRP when new) for US-market cars, model years 1990 to 2017, in `app/vehicle_data/prices/`. `app/reference_prices.py` reads it, so a price appears from the VIN alone, with nothing typed and no internet.
+The app ships with about **11,000 manufacturer prices** (price when new) in `app/vehicle_data/prices/`. `app/reference_prices.py` reads them, so a price appears from the VIN alone, with nothing typed and no internet.
 
-- The list has engine, cylinders and drive type for each version, but **no trim names**. So the app finds the versions of the same make, model and year, narrows them with what the VIN says (cylinders, drive, horsepower), and shows the **range** of prices that remain.
+| Dataset | Prices | Years | Notes |
+|---|---|---|---|
+| Car Features and MSRP (Edmunds-derived) | 10,086 | 1990–2017 | US. Engine, cylinders and drive per version, no trim names |
+| carfinder | 722 | 2025–2027 | US. Cheapest and most expensive version of each model. MIT licence |
+| qatarcars | 104 | 2025 | Qatar prices converted from riyals. Covers brands not sold in the US (BYD, Chery, Geely, Jetour). CC BY 4.0, by Paul Musgrave |
+| gtcars | 47 | 2014–2017 | High-end cars with real trim names. MIT licence |
+
+How a price is found:
+
+- The app takes the versions of the same make, model and year and narrows them with what the VIN says (trim where the dataset has it, then cylinders, drive, horsepower). It shows the **range** of prices that remain.
 - When the exact model year is not on file, it uses the nearest year within 5 years, scales the price by 1.5% a year, and says so.
-- On 4,000 real VINs (mostly model years 2003 to 2015) it found a price for 75%. Only 15% were the exact model year; the rest were adjusted from a nearby year. The price range was within 19% of the typical price for half of them.
-- Whole makes are missing (Jeep, Ram and MINI among them), and there is nothing after 2017.
+- US prices are preferred. Another market's price is used only when there is no US price, and is labelled as a rough guide.
 - A price in the price book (below) always wins over this list.
+
+What it covers, and what it does not:
+
+- On 4,000 real VINs (mostly model years 2003 to 2015) it found a price for 75%. Only 15% were the exact model year; the rest were adjusted from a nearby year.
+- **Model years 2018 to 2024 have no data of their own.** Cars from those years get a price adjusted from 2017 or 2025–2026, which can be well off when a model was redesigned in between.
+- The 2025–2027 prices are a range from the cheapest to the most expensive version, without trim names, and were compiled by a third party from manufacturer sites. Spot-check them before relying on one.
 
 **Adding more price data.** The store is a folder: every `*.csv.gz` file in `app/vehicle_data/prices/` is one dataset, and `SOURCES.json` records where each came from. Any CSV that lists cars with a manufacturer's price can be added with one command, and the app uses it from the next start:
 
@@ -162,7 +176,7 @@ python scripts/import_prices.py new_cars.csv --name cars_2018_2024 \
 
 When a dataset has trim names, the app uses the VIN's trim to narrow the price first.
 
-**Where it comes from:** the open "Car Features and MSRP" dataset, originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds that file.
+**About the largest dataset:** "Car Features and MSRP" was originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds that file and `scripts/add_open_datasets.py` rebuilds the three small ones.
 
 ### The app's own vehicle database
 
@@ -245,7 +259,7 @@ For real customs data, your organisation will probably require hosting on its ow
 
 ## Known limits
 
-- Today's value is an estimate from the price when new and a depreciation schedule, not market data. The built-in price list covers model years 1990 to 2017 only, and many prices are adjusted from a nearby model year.
+- Today's value is an estimate from the price when new and a depreciation schedule, not market data. The built-in price list has no data of its own for model years 2018 to 2024, and many prices are adjusted from a nearby model year.
 - The starting exchange rates are samples. Enter the official customs rates in Settings; the inspector can also set the rate per check.
 - The vehicle database (NHTSA data) mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
 - Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.

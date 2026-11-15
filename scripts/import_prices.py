@@ -65,7 +65,7 @@ def normalise(records, mapping):
     return sorted(kept), dropped
 
 
-def write(name, title, url, years, rows):
+def write(name, title, url, years, rows, market="US"):
     STORE.mkdir(parents=True, exist_ok=True)
     with gzip.open(STORE / f"{name}.csv.gz", "wt", newline="", compresslevel=9) as handle:
         writer = csv.writer(handle)
@@ -73,7 +73,7 @@ def write(name, title, url, years, rows):
         writer.writerows(rows)
     index = STORE / "SOURCES.json"
     sources = json.loads(index.read_text()) if index.exists() else {}
-    sources[name] = {"name": title, "years": years, "url": url}
+    sources[name] = {"name": title, "years": years, "url": url, "market": market}
     index.write_text(json.dumps(sources, indent=2) + "\n")
 
 
@@ -83,6 +83,7 @@ def main():
     parser.add_argument("--name", required=True, help="short file name, letters, digits and _ only")
     parser.add_argument("--title", required=True, help="what the dataset is and where it comes from")
     parser.add_argument("--url", default="")
+    parser.add_argument("--market", default="US", help="market the prices are for, e.g. US, Qatar, UAE")
     for field in COLUMNS:
         parser.add_argument(f"--{field}", required=field in ("make", "model", "year", "msrp"),
                             help=f"name of the column holding the {field}")
@@ -94,7 +95,7 @@ def main():
     if not rows:
         parser.error("no usable rows found; check the column names")
     years = f"{min(r[2] for r in rows)}-{max(r[2] for r in rows)}"
-    write(args.name, args.title, args.url, years, rows)
+    write(args.name, args.title, args.url, years, rows, args.market)
     print(f"{len(rows):,} prices stored as {args.name} ({years}); {dropped:,} rows dropped as unusable")
 
 

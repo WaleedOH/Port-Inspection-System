@@ -408,4 +408,13 @@ def test_reference_price_matching_rules():
     older = rp.find("GMC", "Terrain", 2013)
     assert older.adjusted and older.typical < exact.typical     # scaled back two model years
     assert rp.find("Zastava", "Yugo", 2015) is None
-    assert rp.find("GMC", "Terrain", 2030) is None              # too far from any year on file
+    assert rp.find("GMC", "Terrain", 2040) is None              # too far from any year on file
+    # Newer datasets: 2026 prices, missing makes, and another market only as a fallback.
+    wrangler = rp.find("Jeep", "Wrangler", 2026)
+    assert not wrangler.adjusted and wrangler.low < wrangler.high
+    camry = rp.find("Toyota", "Camry", 2022)                    # US 2026 data beats Qatar 2025
+    assert camry.adjusted and camry.datasets == ("carfinder_us_2025_2027",)
+    land_cruiser = rp.find("Toyota", "Land Cruiser", 2020)      # last US year on file is the 200 series
+    assert land_cruiser is not None
+    geely = rp.find("Geely", "Monjaro", 2025)                   # not sold in the US at all
+    assert geely.datasets == ("qatar_2025",) and "another market" in geely.describe(2025)

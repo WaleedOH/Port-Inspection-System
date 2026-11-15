@@ -20,6 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 
 STORE = Path(__file__).parent / "vehicle_data" / "prices"
+HOME_MARKET = "US"        # prices for this market are preferred; others are a fallback
 MAX_YEAR_GAP = 5          # how far to look for the same model in another year
 YEARLY_CHANGE = 0.015     # typical yearly rise in new-car list prices, used to adjust
 
@@ -50,6 +51,8 @@ class ReferencePrice:
         other = (f"; taken from the {self.year} model (the nearest year on file) and adjusted "
                  f"{YEARLY_CHANGE:.1%} a year, so treat it as approximate") if self.adjusted else ""
         names = [sources().get(d, {}).get("name", d) for d in self.datasets]
+        if any(sources().get(d, {}).get("market", HOME_MARKET) != HOME_MARKET for d in self.datasets):
+            other += "; this is another market's price, so treat it as a rough guide"
         return (f"from our built-in price list ({'; '.join(names)}): "
                 f"{self.versions} version{'s' if self.versions != 1 else ''} of this model{how}{other}")
 
@@ -124,12 +127,20 @@ def find(make: str, model: str, year: int, specs: dict | None = None) -> Referen
     """specs = the VIN's build details, as shown to the inspector
     ({'Engine': '3.6L 6-cyl, 301 hp', 'Drive': 'AWD/All-Wheel Drive', ...})."""
     specs = specs or {}
+    # Prices for the home market first. Another market's prices (taxes and
+    # specifications differ) are used only when the home market has nothing.
+    def market(row) -> str:
+        return sources().get(row["dataset"], {}).get("market", HOME_MARKET)
+
     rows, used_year = [], year
     gaps = [0] + [g * sign for g in range(1, MAX_YEAR_GAP + 1) for sign in (1, -1)]
-    for gap in gaps:
-        rows = _model_rows(make, model, year + gap)
+    for home in (True, False):
+        for gap in gaps:
+            found = [r for r in _model_rows(make, model, year + gap) if (market(r) == HOME_MARKET) == home]
+            if found:
+                rows, used_year = found, year + gap
+                break
         if rows:
-            used_year = year + gap
             break
     if not rows:
         return None

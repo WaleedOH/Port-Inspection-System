@@ -66,9 +66,21 @@ def connect():
         conn.close()
 
 
+# Columns added after the first version. Existing databases get them on start-up.
+NEW_COLUMNS = {
+    "doc_trim": "TEXT", "decoded_trim": "TEXT", "decoded_specs": "TEXT",
+    "physical_check": "TEXT NOT NULL DEFAULT 'not_done'",
+    "identity_review": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(checks)")}
+        for name, kind in NEW_COLUMNS.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE checks ADD COLUMN {name} {kind}")
 
 
 # ---------- passwords and users ----------

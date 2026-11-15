@@ -82,3 +82,37 @@ def test_live_nhtsa_decode(vehicle):
     assert decoded["year"] == vehicle["year"]
     assert decoded["make"].lower() == vehicle["make"].lower()
     assert decoded["model"] == vehicle["model"]
+
+
+# ---------- vehicle identity: catching a car presented as a different trim ----------
+BY_VIN = {v["vin"]: parse_vpic_response({"Results": [v["vpic"]]}) for v in REAL}
+
+
+def test_factory_build_details_come_from_the_vin():
+    denali = BY_VIN["2GKFLZE39D6253778"]            # real 2013 GMC Terrain Denali
+    assert denali["trim"] == "Denali"
+    assert denali["specs"]["Engine"] == "3.6L 6-cyl"
+    assert denali["specs"]["Drive"] == "AWD/All-Wheel Drive"
+    taurus = BY_VIN["1FAHP2FW5CG103485"]["specs"]   # real 2012 Ford Taurus Limited
+    assert taurus["Trim"] == "Limited" and taurus["Engine"] == "3.5L 6-cyl, 263 hp"
+    # Every real VIN gives at least the body or engine to compare with the car.
+    assert all(d["specs"] for d in BY_VIN.values())
+
+
+def test_trim_declared_lower_or_higher_than_built_is_flagged():
+    from app.mismatch import trim_matches
+    denali = BY_VIN["2GKFLZE39D6253778"]
+    paper = {"make": "GMC", "model": "Terrain", "year": 2013}
+    # Declared as the cheap trim, built as the expensive one.
+    low = find_mismatches({**paper, "trim": "SLE"}, denali)
+    assert len(low) == 1 and "Trim on paper is 'SLE'" in low[0] and "Denali" in low[0]
+    # Honest paperwork, written in different styles, is not flagged.
+    assert find_mismatches({**paper, "trim": "denali"}, denali) == []
+    assert find_mismatches({**paper, "trim": ""}, denali) == []
+    assert trim_matches("LS", "LS (&1LS)", None) is True          # real Chevrolet Malibu
+    assert trim_matches("LT", "LS (&1LS)", None) is False
+    assert trim_matches("SLK 350", "SLK350", None) is True        # real Mercedes SLK
+    assert trim_matches("TDI", "SEL, TDI", None) is True          # real VW Jetta
+    assert trim_matches("SE", "SEL, TDI", None) is False
+    # A chassis code alone is not a trim, so nothing is claimed.
+    assert trim_matches("LE", None, "ZZE130L") is None            # real Toyota Corolla

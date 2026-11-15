@@ -38,11 +38,22 @@
     </div>
     <div id="vinResult" aria-live="polite"></div>
   </div>
+  <div class="card" id="specCard" hidden>
+    <h2>How the factory built this car (from the VIN)</h2>
+    <dl id="specList"></dl>
+    <p class="muted">Badges, wheels and trim parts can be swapped; the VIN cannot. Compare these details with the actual vehicle: engine size and cylinders, drive type, body, and interior grade. Check that the VIN is the same on the dashboard, the door frame and the chassis stamp.</p>
+    <label>Does the vehicle in front of you match?
+      <select id="physical">
+        {% for key, label in physical_checks.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
   <div class="card">
     <div class="row">
       <label>Make <input id="make" autocomplete="off"></label>
       <label>Model <input id="model" autocomplete="off"></label>
     </div>
+    <label>Trim on paper <span class="muted">(optional, e.g. LX, Limited, Denali)</span> <input id="trim" autocomplete="off"></label>
     <div class="row">
       <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
       <label>Mileage <span class="muted">(optional)</span> <input id="mileage" inputmode="numeric"></label>

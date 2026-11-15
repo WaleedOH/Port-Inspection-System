@@ -12,6 +12,10 @@
   <span>declared vs. market value</span>
   {% endif %}
 </div>
+{% if c.identity_review %}
+<div class="flag yellow"><strong>Needs review: vehicle identity</strong>
+  <span>The paperwork, the VIN or the vehicle do not agree. See "Vehicle" below.</span></div>
+{% endif %}
 {% if c.flag in ('YELLOW', 'RED') %}
 <p class="note">This flag is a risk indicator, <strong>not proof of fraud</strong>. It means the declaration needs review by an officer.</p>
 {% endif %}
@@ -38,13 +42,16 @@
   <dl>
     <dt>VIN</dt><dd class="mono">{{ c.vin }}</dd>
     <dt>Check digit</dt><dd>{% if not c.vin_standard %}Not a standard 17-character VIN{% elif c.vin_check_digit_ok %}Correct{% else %}Does not match{% endif %}</dd>
-    <dt>On paper</dt><dd>{{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }}</dd>
+    <dt>On paper</dt><dd>{{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }} {{ c.doc_trim or '' }}</dd>
     <dt>VIN decodes to</dt><dd>{% if c.decoded_make %}{{ c.decoded_year or '' }} {{ c.decoded_make }} {{ c.decoded_model or '(model not in database)' }}{% else %}Not decoded{% endif %}</dd>
+    {% for label, value in specs.items() %}<dt>Built as: {{ label | lower }}</dt><dd>{{ value }}</dd>{% endfor %}
+    <dt>Physical check</dt><dd>{{ physical_checks.get(c.physical_check, 'Not recorded') }}</dd>
     {% if c.mileage is not none %}<dt>Mileage</dt><dd>{{ '{:,}'.format(c.mileage) }}</dd>{% endif %}
     {% if c.incoterm %}<dt>Delivery term</dt><dd>{{ c.incoterm }}</dd>{% endif %}
     <dt>Seller</dt><dd>{{ c.seller or 'n/a' }}</dd>
     <dt>Buyer</dt><dd>{{ c.buyer or 'n/a' }}</dd>
   </dl>
+  {% if c.physical_check == 'differs' %}<p class="note bad">The inspector recorded that the vehicle does not match the details in its VIN.</p>{% endif %}
   {% for line in (c.mismatch_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
   {% for line in (c.vin_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
   {% if previous %}

@@ -161,3 +161,45 @@ def test_value_estimated_from_manufacturer_price(logged_in, monkeypatch):
     saved = logged_in.post("/api/checks", data={"vin": VIN, "make": "Volvo", "model": "S60", "year": "2012",
                                                 "declared_price": "500", "use_provider": "1", "new_price": "31300"})
     assert "31,300 USD, entered by inspector" in logged_in.get(saved.json()["url"]).text
+
+
+def test_identity_review_for_wrong_trim_and_physical_check(logged_in, monkeypatch):
+    monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
+        "available": True, "make": "GMC", "model": "Terrain", "year": 2013, "trim": "Denali",
+        "series": None, "clean": True, "message": None,
+        "specs": {"Trim": "Denali", "Engine": "3.6L 6-cyl", "Drive": "AWD/All-Wheel Drive"}})
+    base = {"vin": "2GKFLZE39D6253778", "make": "GMC", "model": "Terrain", "year": "2013",
+            "declared_price": "9000", "market_value": "9000"}
+    report = logged_in.post("/api/vin-check", json={**base, "trim": "SLE"}).json()
+    assert report["decoded"]["specs"]["Engine"] == "3.6L 6-cyl" and len(report["mismatches"]) == 1
+
+    # Price is fine (GREEN), but the paper trim is wrong: identity still needs review.
+    page = logged_in.get(logged_in.post("/api/checks", data={**base, "trim": "SLE"}).json()["url"]).text
+    assert "Within expected range" in page and "Needs review: vehicle identity" in page
+    assert "Built as: engine" in page and "3.6L 6-cyl" in page
+
+    # Paper agrees with the VIN, but the inspector sees a different car.
+    page = logged_in.get(logged_in.post("/api/checks", data={
+        **base, "trim": "Denali", "physical_check": "differs"}).json()["url"]).text
+    assert "Needs review: vehicle identity" in page and "does not match the details in its VIN" in page
+
+    # Everything agrees: no identity flag.
+    page = logged_in.get(logged_in.post("/api/checks", data={
+        **base, "trim": "Denali", "physical_check": "matches"}).json()["url"]).text
+    assert "Needs review: vehicle identity" not in page and "Vehicle matches the VIN details" in page
+
+    rows = list(csv.DictReader(io.StringIO(logged_in.get("/history.csv?q=2GKFLZE39D6253778").text)))
+    assert sorted(r["identity_review"] for r in rows) == ["0", "1", "1"]
+    assert "Identity needs review" in logged_in.get("/history?q=2GKFLZE39D6253778").text
+
+
+def test_old_database_gains_the_new_columns(tmp_path, monkeypatch):
+    import sqlite3
+    from app import config, db
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    with sqlite3.connect(tmp_path / "app.db") as conn:   # a database from the first version
+        conn.execute("CREATE TABLE checks (id INTEGER PRIMARY KEY, vin TEXT NOT NULL)")
+        conn.execute("INSERT INTO checks (vin) VALUES ('1HGCM82633A004352')")
+    db.init()
+    row = db.get_check(1)
+    assert row["physical_check"] == "not_done" and row["identity_review"] == 0 and row["doc_trim"] is None

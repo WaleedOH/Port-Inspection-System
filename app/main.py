@@ -31,6 +31,9 @@ HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
 DECISIONS = {"pending": "Pending", "cleared": "Cleared, no action",
              "referred": "Referred for valuation review"}
+PHYSICAL_CHECKS = {"not_done": "Vehicle not compared yet",
+                   "matches": "Vehicle matches the VIN details",
+                   "differs": "Vehicle does NOT match the VIN details"}
 PUBLIC_PATHS = ("/login", "/static/", "/healthz")
 
 
@@ -101,7 +104,7 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
 def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
-                   flag_labels=FLAG_LABELS, decisions=DECISIONS,
+                   flag_labels=FLAG_LABELS, decisions=DECISIONS, physical_checks=PHYSICAL_CHECKS,
                    ephemeral=config.is_ephemeral(), needs_setup=not _ready)
     return templates.TemplateResponse(request, name, context)
 
@@ -207,12 +210,13 @@ async def read_document(document: UploadFile | None = File(None),
     return {"fields": fields.to_dict(), "error": None}
 
 
-def _vin_report(vin_raw: str, make: str = "", model: str = "", year: int | None = None) -> dict:
+def _vin_report(vin_raw: str, make: str = "", model: str = "", year: int | None = None,
+                trim: str = "") -> dict:
     result = validate_vin(vin_raw)
     decoded, mismatches = None, []
     if result.is_standard:
         decoded = vpic.decode_vin(result.vin)
-        mismatches = find_mismatches({"make": make, "model": model, "year": year}, decoded)
+        mismatches = find_mismatches({"make": make, "model": model, "year": year, "trim": trim}, decoded)
     return {"validation": result.to_dict(), "decoded": decoded, "mismatches": mismatches}
 
 
@@ -221,7 +225,7 @@ async def vin_check(request: Request):
     body = await request.json()
     year = body.get("year")
     report = _vin_report(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
-                         int(year) if str(year or "").isdigit() else None)
+                         int(year) if str(year or "").isdigit() else None, body.get("trim") or "")
     previous = db.previous_checks_for_vin(report["validation"]["vin"]) if report["validation"]["vin"] else []
     report["previous"] = [dict(row) for row in previous]
     return report
@@ -280,7 +284,7 @@ async def create_check(
     seller: str = Form(""), buyer: str = Form(""), mileage: str = Form(""), incoterm: str = Form(""),
     declared_price: str = Form(""), currency: str = Form("USD"), exchange_rate: str = Form(""),
     market_value: str = Form(""), market_source: str = Form(""), use_provider: str = Form(""),
-    new_price: str = Form(""),
+    new_price: str = Form(""), trim: str = Form(""), physical_check: str = Form("not_done"),
     notes: str = Form(""),
     document: UploadFile | None = File(None), vin_plate: UploadFile | None = File(None),
 ):
@@ -295,7 +299,9 @@ async def create_check(
     if not rate:
         raise HTTPException(422, f"Enter an exchange rate for {currency}.")
 
-    report = _vin_report(vin, make, model, int(year_n) if year_n else None)
+    report = _vin_report(vin, make, model, int(year_n) if year_n else None, trim)
+    if physical_check not in PHYSICAL_CHECKS:
+        physical_check = "not_done"
     validation = report["validation"]
     if not validation["ok"]:
         raise HTTPException(422, " ".join(validation["errors"]))
@@ -327,6 +333,10 @@ async def create_check(
         "doc_make": make.strip(), "doc_model": model.strip(), "doc_year": int(year_n) if year_n else None,
         "decoded_make": decoded.get("make"), "decoded_model": decoded.get("model"),
         "decoded_year": decoded.get("year"), "mismatch_notes": "\n".join(report["mismatches"]),
+        "doc_trim": trim.strip()[:60], "decoded_trim": decoded.get("trim"),
+        "decoded_specs": json.dumps(decoded.get("specs") or {}), "physical_check": physical_check,
+        # Identity needs review when paper and VIN disagree, or the inspector saw a difference.
+        "identity_review": int(bool(report["mismatches"]) or physical_check == "differs"),
         "seller": seller.strip()[:200], "buyer": buyer.strip()[:200],
         "mileage": int(mileage_n) if mileage_n is not None else None, "incoterm": incoterm.strip()[:10],
         "declared_price": price, "currency": currency, "exchange_rate": rate, "base_currency": base,
@@ -349,7 +359,7 @@ def check_detail(request: Request, check_id: int):
     check = db.get_check(check_id)
     if not check:
         raise HTTPException(404, "Check not found.")
-    return page(request, "check.html", c=check,
+    return page(request, "check.html", c=check, specs=json.loads(check["decoded_specs"] or "{}"),
                 previous=db.previous_checks_for_vin(check["vin"], exclude_id=check_id))
 
 
@@ -377,7 +387,8 @@ def history(request: Request, q: str = "", flag: str = ""):
 
 
 CSV_COLUMNS = ["id", "created_at", "created_by", "vin", "vin_check_digit_ok", "doc_make", "doc_model",
-               "doc_year", "decoded_make", "decoded_model", "decoded_year", "mismatch_notes", "seller",
+               "doc_trim", "doc_year", "decoded_make", "decoded_model", "decoded_trim", "decoded_year",
+               "mismatch_notes", "physical_check", "identity_review", "seller",
                "buyer", "mileage", "incoterm", "declared_price", "currency", "exchange_rate",
                "base_currency", "declared_base", "market_value", "market_source", "diff_pct", "flag",
                "flag_label", "decision", "decision_by", "decision_at", "notes"]

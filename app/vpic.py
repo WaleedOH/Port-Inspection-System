@@ -22,6 +22,33 @@ def _tidy_make(make: str) -> str | None:
     return _ACRONYMS.get(make, make) or None
 
 
+def _engine(row: dict) -> str | None:
+    """'3.5L 6-cyl, 268 hp' from the separate vPIC engine fields."""
+    parts = []
+    litres = (row.get("DisplacementL") or "").strip()
+    if litres.replace(".", "", 1).isdigit():
+        parts.append(f"{float(litres):.1f}L")
+    if (row.get("EngineCylinders") or "").strip():
+        parts.append(f"{row['EngineCylinders'].strip()}-cyl")
+    text = " ".join(parts)
+    hp = (row.get("EngineHP") or "").strip()
+    if hp.replace(".", "", 1).isdigit():
+        text = f"{text}, {float(hp):.0f} hp".strip(", ")
+    return text or None
+
+
+# What the factory built, as recorded in the VIN. Label -> value.
+def _specs(row: dict) -> dict:
+    get = lambda key: (row.get(key) or "").strip() or None  # noqa: E731
+    specs = {
+        "Trim": get("Trim"), "Series": get("Series"), "Engine": _engine(row),
+        "Fuel": get("FuelTypePrimary"), "Drive": get("DriveType"),
+        "Body": get("BodyClass"), "Doors": get("Doors"),
+        "Transmission": get("TransmissionStyle"),
+    }
+    return {label: value for label, value in specs.items() if value}
+
+
 def parse_vpic_response(payload: dict) -> dict:
     """Pick the few fields we need out of vPIC's ~150 fields."""
     row = (payload.get("Results") or [{}])[0]
@@ -35,6 +62,9 @@ def parse_vpic_response(payload: dict) -> dict:
         "year": int(year) if year.isdigit() else None,
         "manufacturer": (row.get("Manufacturer") or "").strip() or None,
         "body_class": (row.get("BodyClass") or "").strip() or None,
+        "trim": (row.get("Trim") or "").strip() or None,
+        "series": (row.get("Series") or "").strip() or None,
+        "specs": _specs(row),
         "country": (row.get("PlantCountry") or "").strip().title() or None,
         # Manufacturer's base price when new. NHTSA only has it for a few vehicles.
         "base_price": float(price) if price.replace(".", "", 1).isdigit() and float(price) > 0 else None,

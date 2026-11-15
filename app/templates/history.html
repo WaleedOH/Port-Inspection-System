@@ -21,7 +21,7 @@
     <span class="grow">
       <span class="mono">{{ c.vin }}</span><br>
       <span class="muted">{{ c.created_at[:16] }} · {{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }}</span><br>
-      <span>{{ '{:,.0f}'.format(c.declared_price) }} {{ c.currency }} · {{ c.flag_label }}{% if c.diff_pct is not none %} ({{ '%+.0f' | format(c.diff_pct) }}%){% endif %}</span>
+      <span>{{ '{:,.0f}'.format(c.declared_price) }} {{ c.currency }} · {{ c.flag_label }}{% if c.diff_pct is not none %} ({{ '%+.0f' | format(c.diff_pct) }}%){% endif %}</span>{% if c.identity_review %}<br><strong>Identity needs review</strong>{% endif %}
     </span>
   </a></li>
   {% endfor %}

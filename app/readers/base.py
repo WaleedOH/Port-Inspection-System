@@ -14,6 +14,7 @@ class ExtractedFields:
     currency: str | None = None
     make: str | None = None
     model: str | None = None
+    trim: str | None = None
     year: int | None = None
     seller: str | None = None
     buyer: str | None = None

@@ -26,6 +26,7 @@ confidence; a blank is far more useful to the inspector than a guess.
 included, prefer the VIN on the plate.
 - declared_price: the total price for the vehicle as a plain number, with \
 currency as a 3-letter ISO code (USD, EUR, JPY, ...).
+- trim: the trim level or grade if shown (LX, Limited, Denali, ...).
 - year: the vehicle's model year. mileage: the odometer reading as a number.
 - incoterm: the delivery term if shown (FOB, CIF, ...)."""
 
@@ -36,6 +37,7 @@ class _Fields(BaseModel):
     currency: str | None
     make: str | None
     model: str | None
+    trim: str | None
     year: int | None
     seller: str | None
     buyer: str | None

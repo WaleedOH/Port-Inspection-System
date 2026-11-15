@@ -165,7 +165,7 @@
 
   function fillForm(f) {
     const set = (id, value) => { if (value !== null && value !== undefined) $(id).value = value; };
-    set("vin", f.vin); set("make", f.make); set("model", f.model); set("year", f.year);
+    set("vin", f.vin); set("make", f.make); set("model", f.model); set("year", f.year); set("trim", f.trim);
     set("price", f.declared_price); set("seller", f.seller); set("buyer", f.buyer);
     set("mileage", f.mileage); set("incoterm", f.incoterm);
     if (f.currency) {
@@ -181,8 +181,10 @@
     box.replaceChildren(note("", "Checking the VIN"));
     try {
       const r = await postJson("/api/vin-check", {
-        vin: $("vin").value, make: $("make").value, model: $("model").value, year: $("year").value });
+        vin: $("vin").value, make: $("make").value, model: $("model").value, year: $("year").value,
+        trim: $("trim").value });
       const v = r.validation;
+      showSpecs((r.decoded && r.decoded.specs) || {});
       $("vin").value = v.vin;
       const items = [];
       v.errors.forEach((e) => items.push(note("bad", e)));
@@ -218,6 +220,20 @@
     }
   }
   $("vinBtn").addEventListener("click", checkVin);
+
+  // The factory build details recorded in the VIN, for comparing with the real car.
+  function showSpecs(specs) {
+    const rows = Object.entries(specs).flatMap(([label, value]) => {
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = label;
+      dd.textContent = value;
+      return [dt, dd];
+    });
+    $("specList").replaceChildren(...rows);
+    $("specCard").hidden = rows.length === 0;
+    if (!rows.length) $("physical").value = "not_done";
+  }
 
   $("toStep3").addEventListener("click", async () => {
     if (!$("vin").value.trim()) { showError("Enter the VIN."); return; }
@@ -271,7 +287,8 @@
     const fields = { vin: "vin", make: "make", model: "model", year: "year", seller: "seller",
       buyer: "buyer", mileage: "mileage", incoterm: "incoterm", declared_price: "price",
       currency: "currency", exchange_rate: "rate", market_value: "market",
-      market_source: "source", notes: "notes", new_price: "newPrice" };
+      market_source: "source", notes: "notes", new_price: "newPrice", trim: "trim",
+      physical_check: "physical" };
     Object.entries(fields).forEach(([name, id]) => form.append(name, $(id).value));
     form.append("use_provider", useProvider ? "1" : "");
     if (photos.doc) form.append("document", photos.doc, "document.jpg");

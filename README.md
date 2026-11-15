@@ -12,7 +12,8 @@ A prototype web app for customs and port inspectors. The inspector photographs a
 3. **Correction.** The inspector sees every field and fixes mistakes before continuing.
 4. **VIN check.** The app checks the VIN (17 characters, no I/O/Q, check digit) and decodes it with the free [NHTSA vPIC API](https://vpic.nhtsa.dot.gov/api/).
    When the check digit fails, it offers "did you mean?" fixes for look-alike characters (S/5, B/8, Z/2, G/6, D/0, and I/O/Q). It never changes the VIN by itself.
-5. **Mismatch warning.** It warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
+5. **Vehicle identity check.** The VIN records how the factory built the car: trim, engine, drive type, body. Badges and trim parts can be swapped, but the VIN cannot, so the app shows these details for the inspector to compare with the actual vehicle, and the inspector records whether it matches. If the trim on the paperwork differs from the trim in the VIN, or the vehicle does not match, the check gets a separate **"Needs review: vehicle identity"** flag, even when the price looks fine.
+   It also warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
 6. **Market value.** It estimates today's value from the manufacturer's price when new (typed in by the inspector, or from NHTSA when available), or the inspector types a market value in with its source.
 7. **Result.** It shows declared price, market value, the difference in %, a flag, and a plain-language "Why this flag?" explanation. The page can be printed or saved as PDF.
 8. **History.** Every check is saved with date, inspector, photos, all values and the officer's decision. The history page has search by VIN and export to CSV.
@@ -147,5 +148,7 @@ For real customs data, your organisation will probably require hosting on its ow
 - The NHTSA database mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
 - Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.
 - FOB and CIF prices are recorded but not adjusted for freight and insurance.
+- The identity check depends on what NHTSA knows about the VIN. In the 40 real test VINs, 28 had a trim name; the rest gave engine, body and drive details only. Vehicles built for other markets often have none of these.
+- The app cannot tell that a VIN plate itself has been swapped or cloned. The inspector should compare the VIN on the dashboard, the door frame and the chassis stamp.
 
 Research notes and ideas for where to take this next are in [docs/RESEARCH.md](docs/RESEARCH.md).

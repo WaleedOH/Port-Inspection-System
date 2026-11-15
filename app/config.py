@@ -72,4 +72,7 @@ VIN_DECODER = lambda: os.environ.get("VIN_DECODER", "both")  # noqa: E731
 # "off" (default) or "claude": search the web for a manufacturer's price that
 # is not in our own data yet. Needs ANTHROPIC_API_KEY.
 PRICE_RESEARCH = lambda: os.environ.get("PRICE_RESEARCH", "off")  # noqa: E731
+# "on" (default) or "off": read public car-price pages for a model that is
+# not in our stored data, and save what is found. No account or key needed.
+WEB_PRICE_LOOKUP = lambda: os.environ.get("WEB_PRICE_LOOKUP", "on")  # noqa: E731
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 MB per photo

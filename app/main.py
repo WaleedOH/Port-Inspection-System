@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, reference_prices, research, vpic
+from . import config, db, reference_prices, research, vpic, web_prices
 from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
@@ -144,6 +144,14 @@ def healthz():
     return {"status": "ok"}
 
 
+@app.get("/healthz/price-sources")
+def price_sources():
+    """Which public price pages can this server read? A fixed self-test with
+    one well-known car; it never takes input and runs at most every 10 minutes."""
+    return {"enabled": web_prices.enabled(), "sample": "2020 Toyota Camry",
+            "sites": [{k: t[k] for k in ("site", "result", "prices")} for t in web_prices.selftest()]}
+
+
 @app.get("/login")
 def login_page(request: Request):
     return page(request, "login.html", error=None)
@@ -254,8 +262,10 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
 
     The manufacturer's price when new is looked for in this order:
       1. typed in by the inspector for this check;
-      2. OUR OWN stored data: the price book, the vehicle database, then the
-         reference price list that ships with the app;
+      2. OUR OWN stored data: the price book, the vehicle database, the
+         built-in price list (exact model year), and prices already found online;
+      2b. the automatic WEB LOOKUP of public car-price pages, saved for next time;
+          failing that, the built-in list's nearest model year;
       3. ONLINE search (if switched on). What it finds is saved in the price
          book with its web sources, so step 2 answers next time.
     """
@@ -273,11 +283,20 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
     if not new_price and decoded.get("base_price"):
         new_price, source = decoded["base_price"], "from our vehicle database"
     price_range = None
+    listed = None if new_price else reference_prices.find(make, model, year, decoded.get("specs"))
+    if listed and not listed.adjusted:
+        # Our built-in list has this exact model year.
+        new_price, price_range, source = listed.typical, (listed.low, listed.high), listed.describe(year)
     if not new_price:
-        listed = reference_prices.find(make, model, year, decoded.get("specs"))
-        if listed:
-            new_price, price_range = listed.typical, (listed.low, listed.high)
-            source = listed.describe(year)
+        # Not in our stored data for this year: look it up on the web, and keep it.
+        online, note = web_prices.find(make, model, year)
+        if online:
+            new_price, price_range = online.typical, (online.low, online.high)
+            source = online.describe()
+    if not new_price and listed:
+        # Nothing online either: fall back to the nearest model year we do have.
+        new_price, price_range, source = listed.typical, (listed.low, listed.high), listed.describe(year)
+        note = ""
     if not new_price and research.enabled() and make and model and year:
         details = ", ".join(f"{k}: {v}" for k, v in (decoded.get("specs") or {}).items())
         found, note = research.find_msrp(year=year, make=make, model=model,
@@ -342,7 +361,8 @@ async def lookup(request: Request):
     report = _vin_report(str(body.get("vin", "")), paper["make"], paper["model"], paper_year, paper["trim"])
     validation, decoded = report["validation"], report["decoded"] or {}
     report["previous"] = [dict(r) for r in db.previous_checks_for_vin(validation["vin"])] if validation["vin"] else []
-    report["value"], report["note"], report["searches_online"] = None, "", research.enabled()
+    report["value"], report["note"] = None, ""
+    report["searches_online"] = research.enabled() or web_prices.enabled()
     if validation["ok"]:
         # What the paper says wins when given; otherwise use what the VIN says.
         make, model = paper["make"] or decoded.get("make") or "", paper["model"] or decoded.get("model") or ""
@@ -373,7 +393,7 @@ async def market_value(request: Request):
     value, note = _lookup_value(str(body.get("vin", "")), body.get("make") or "", body.get("model") or "",
                                 year, mileage, new_price, body.get("trim") or "", request.session["user"])
     return {"found": value is not None, "value": value.to_dict() if value else None, "note": note,
-            "searches_online": research.enabled()}
+            "searches_online": research.enabled() or web_prices.enabled()}
 
 
 def _decode_notes(decoded: dict) -> list[str]:
@@ -572,6 +592,7 @@ def history_csv(q: str = "", flag: str = ""):
 # ---------------- our own price book ----------------
 def _prices_page(request: Request, q: str = "", message: str | None = None, error: str | None = None):
     return page(request, "prices.html", prices=db.list_prices(q), q=q, total=db.count_prices(),
+                web_found=db.list_web_prices(),
                 message=message, error=error, base=db.get_settings()["base_currency"])
 
 
@@ -673,7 +694,7 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
     return page(request, "settings.html", settings=settings, rates_text=rates_text, error=error,
                 schedule_text=schedule_text,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
-                decoder=vpic.decoder_name(), research_on=research.enabled(),
+                decoder=vpic.decoder_name(), research_on=research.enabled(), web_lookup_on=web_prices.enabled(),
                 reference_sources=[(reference_prices.sources().get(name, {}), total)
                                    for name, total in sorted(reference_prices.counts_by_dataset().items())],
                 storage="PostgreSQL database (permanent)" if db.is_postgres() else

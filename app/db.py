@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS price_book (
 );
 CREATE INDEX IF NOT EXISTS idx_price_pattern ON price_book(vin_pattern);
 CREATE INDEX IF NOT EXISTS idx_price_vehicle ON price_book(make_key, model_key, year);
+CREATE TABLE IF NOT EXISTS web_prices (
+    make_key TEXT NOT NULL, model_key TEXT NOT NULL, year INTEGER NOT NULL,
+    found INTEGER NOT NULL, low {REAL}, high {REAL}, site TEXT, url TEXT, fetched_at TEXT NOT NULL,
+    PRIMARY KEY (make_key, model_key, year)
+);
 CREATE TABLE IF NOT EXISTS photos (
     name TEXT PRIMARY KEY, media_type TEXT NOT NULL, data {BLOB} NOT NULL, created_at TEXT NOT NULL
 );
@@ -422,3 +427,35 @@ def summary() -> dict:
             "COALESCE(SUM(CASE WHEN decision = 'pending' AND (flag IN ('YELLOW', 'RED') OR identity_review = 1) "
             "THEN 1 ELSE 0 END), 0) AS awaiting FROM checks").fetchone()
     return dict(row)
+
+
+# ---------- prices found by the automatic web lookup ----------
+def get_web_price(make_key: str, model_key: str, year: int):
+    with connect() as conn:
+        return conn.execute("SELECT * FROM web_prices WHERE make_key = ? AND model_key = ? AND year = ?",
+                            (make_key, model_key, year)).fetchone()
+
+
+def save_web_price(make_key: str, model_key: str, year: int, price) -> None:
+    """price is a WebPrice, or None to remember that nothing was found."""
+    values = ((1, price.low, price.high, price.site, price.url, price.fetched_at) if price
+              else (0, None, None, None, None, now()))
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO web_prices (make_key, model_key, year, found, low, high, site, url, fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(make_key, model_key, year) DO UPDATE SET "
+            "found = excluded.found, low = excluded.low, high = excluded.high, site = excluded.site, "
+            "url = excluded.url, fetched_at = excluded.fetched_at",
+            (make_key, model_key, year, *values))
+
+
+def list_web_prices(limit: int = 200):
+    with connect() as conn:
+        return conn.execute("SELECT * FROM web_prices WHERE found = 1 ORDER BY fetched_at DESC LIMIT ?",
+                            (limit,)).fetchall()
+
+
+def delete_web_price(make_key: str, model_key: str, year: int) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM web_prices WHERE make_key = ? AND model_key = ? AND year = ?",
+                     (make_key, model_key, year))

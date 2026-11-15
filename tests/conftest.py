@@ -7,6 +7,7 @@ os.environ["ADMIN_USERNAME"] = "admin"
 os.environ["ADMIN_PASSWORD"] = "test-password-123"
 os.environ["DOCUMENT_READER"] = "browser-ocr"
 os.environ["PRICING_PROVIDER"] = "mock"
+os.environ["WEB_PRICE_LOOKUP"] = "off"     # tests never go online
 
 # Tests must never touch a real database, so DATABASE_URL is ignored here.
 # To run the tests on PostgreSQL, point TEST_DATABASE_URL at a throw-away

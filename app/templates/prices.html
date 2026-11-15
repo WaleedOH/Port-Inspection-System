@@ -25,6 +25,18 @@
   </div></li>
   {% endfor %}
 </ul>
+{% if web_found %}
+<h2>Found online and saved</h2>
+<ul class="list">
+  {% for w in web_found %}
+  <li><div class="item"><span class="grow">
+    <strong>{{ w.year }} {{ w.make_key }} {{ w.model_key }}</strong><br>
+    <span>{{ '{:,.0f}'.format(w.low) }} to {{ '{:,.0f}'.format(w.high) }} {{ base }} new</span><br>
+    <span class="muted">{{ w.site }}, {{ w.fetched_at[:10] }} · {{ w.url }}</span>
+  </span></div></li>
+  {% endfor %}
+</ul>
+{% endif %}
 {% if is_admin %}
 <form method="post" action="/prices" class="card">
   <h2>Add a price</h2>

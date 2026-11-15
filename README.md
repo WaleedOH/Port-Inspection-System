@@ -1,20 +1,139 @@
 # Import Value Checker
 
-A prototype web app for customs and port inspectors. It helps them spot vehicle imports whose declared price looks too low compared to the car's market value.
+A prototype web app for customs and port inspectors. The inspector photographs a vehicle's import paperwork, and the app compares the declared price with a reference market value.
 
-> ⚠️ A flag from this app is **never proof of fraud**. It only means the declaration **needs review** by a person.
+> ⚠️ A flag from this app is **never proof of fraud**. It is a risk indicator that means "this declaration **needs review** by an officer". A low price can be legitimate (damage, high mileage, trim). Under the WTO Valuation Agreement, customs may not simply replace a declared price with a database value.
 
-## What it will do
+## What it does
 
-1. The inspector photographs the invoice or customs document (and, optionally, the VIN plate).
-2. The app reads the photo and pulls out the VIN, price, currency, make, model, year, seller and buyer.
-3. The inspector checks those fields and fixes any mistakes.
-4. The app validates the VIN and decodes it with the free NHTSA vPIC API.
-5. It warns when the decoded vehicle doesn't match the paperwork.
-6. It compares the declared price with a market value. The value comes from a mock provider for now; a real one can be plugged in later.
-7. It shows a result: 🟢 GREEN / 🟡 YELLOW / 🔴 RED, labelled "needs review". The thresholds can be changed.
-8. It saves every check in a history you can search by VIN and export to CSV.
+1. **Photo.** The inspector takes or uploads a photo of the invoice or customs document, and optionally the VIN plate.
+2. **Reading.** The app reads the VIN, declared price, currency, make, model, year, seller, buyer, mileage and delivery term from the photo.
+3. **Correction.** The inspector sees every field and fixes mistakes before continuing.
+4. **VIN check.** The app checks the VIN (17 characters, no I/O/Q, check digit) and decodes it with the free [NHTSA vPIC API](https://vpic.nhtsa.dot.gov/api/).
+5. **Mismatch warning.** It warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
+6. **Market value.** It looks up a reference value (sample data for now), or the inspector types one in with its source.
+7. **Result.** It shows declared price, market value, the difference in %, a flag, and a plain-language "Why this flag?" explanation. The page can be printed or saved as PDF.
+8. **History.** Every check is saved with date, inspector, photos, all values and the officer's decision. The history page has search by VIN and export to CSV.
 
-## Status
+| Flag | Default rule | Label |
+|---|---|---|
+| 🟢 GREEN | up to 15% below market (or above it) | Within expected range |
+| 🟡 YELLOW | 15–30% below market | Needs review |
+| 🔴 RED | more than 30% below market | Needs review (priority) |
 
-🚧 Planning stage. The setup, run and deploy instructions will go here once the first working version exists.
+An administrator can change both thresholds on the Settings page.
+
+## Run it on your computer
+
+You need [Python](https://www.python.org/downloads/) 3.11 or newer. Open a terminal in this folder and run:
+
+```bash
+python -m venv .venv                 # a private place for this project's packages
+source .venv/bin/activate            # on Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Then open <http://localhost:8000>.
+
+The first time it starts, the app creates an administrator account and **prints the username and password in the terminal**. To choose your own instead, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` before the first start (see `.env.example`).
+
+To try it from your phone on the same Wi-Fi, start it with `uvicorn app.main:app --host 0.0.0.0` and open `http://<your computer's IP address>:8000`. Phones only open the camera directly on HTTPS sites, so on plain `http` you may get the photo picker instead. That is one reason to deploy it properly.
+
+### Run the tests
+
+```bash
+pytest
+```
+
+The tests cover VIN validation, the price comparison logic, the document parser, the mock pricing provider and the whole web flow.
+
+## Settings (environment variables)
+
+No password or API key is ever written in the code. They are read from environment variables. Copy `.env.example` to `.env`, fill it in, and start with `uvicorn app.main:app --env-file .env`.
+
+| Variable | What it is | Default |
+|---|---|---|
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | First administrator account (used once) | `admin` / random, printed |
+| `SECRET_KEY` | Signs the login cookies | generated and kept in the data folder |
+| `COOKIE_SECURE` | Set to `1` when served over HTTPS | `0` |
+| `DATA_DIR` | Folder for the database and photos | `data` |
+| `DOCUMENT_READER` | `browser-ocr` or `claude` | `browser-ocr` |
+| `PRICING_PROVIDER` | `mock` | `mock` |
+
+## How it is built
+
+The stack is deliberately small: **Python + FastAPI** for the server, **SQLite** (a single file) for the database, and plain HTML, CSS and JavaScript for the screens. There is no build step.
+
+```
+app/
+  vin.py          VIN validation and check digit
+  vpic.py         VIN decoding (NHTSA vPIC), cached in the database
+  mismatch.py     paper vs. decoded VIN comparison
+  compare.py      declared price vs. market value -> flag + explanation
+  pricing/        market value providers  (swappable)
+  readers/        document readers        (swappable)
+  db.py           database, password hashing
+  main.py         pages and API
+  templates/, static/   the screens
+tests/
+```
+
+### Swapping the pricing provider
+
+`app/pricing/base.py` defines the interface: one method, `get_value(vin, make, model, year, mileage)`, which returns a value, a low–high range, a source and a date.
+
+Today there is only `mock.py`, with **sample numbers that are not real market data**. To plug in Black Book, J.D. Power, auction data or another source:
+
+1. Add a file such as `app/pricing/blackbook.py` with a class that has `get_value()`. Read its API key from an environment variable.
+2. Add one line to `PROVIDERS` in `app/pricing/__init__.py`.
+3. Set `PRICING_PROVIDER=blackbook`.
+
+### Swapping the document reader
+
+`app/readers/base.py` defines the interface: `read(document, vin_plate, ...)` returns the extracted fields.
+
+- **`browser-ocr`** (default, free, no account). The phone reads the text itself with [Tesseract.js](https://github.com/naptha/tesseract.js), which is included in `app/static/vendor/`, so nothing is downloaded from other sites. `readers/parser.py` then finds the fields in the text. It works best on clear, flat, printed documents and will misread poor photos.
+- **`claude`** (optional, paid, more accurate). Claude reads the photo directly. Run `pip install anthropic`, then set `DOCUMENT_READER=claude` and `ANTHROPIC_API_KEY`. With this reader the photos are sent to Anthropic's API, so check that this is allowed for your documents. This reader has not been run against the live API yet.
+
+To add another reader, write a class with `read()` and add it to `READERS` in `app/readers/__init__.py`.
+
+## Security
+
+- **Accounts.** Every inspector logs in with their own account. Passwords are stored as salted scrypt hashes. After 5 wrong attempts the login is locked for 5 minutes.
+- **Access.** Every page, photo and export requires login. Only administrators can change settings and accounts.
+- **Photos.** They are checked to be real images, limited to 8 MB, stored under random names, and resized on the phone before upload, which also removes hidden location data.
+- **Web protections.** Database queries use placeholders, pages escape all text, cross-site form posts are blocked, and CSV cells that look like formulas are neutralised.
+- **Personal data.** Invoices contain seller and buyer names. Keep the `data/` folder on an encrypted disk, back it up, and agree a retention period with your organisation.
+
+Not yet included, and needed before real use: HTTPS (your hosting provides it), an audit log of who viewed what, password reset, and automatic deletion of old records.
+
+## Deploy it
+
+The app needs one thing from a host: a **persistent disk**, because the database and photos live in the `data` folder. Hosts without one (for example serverless platforms) will lose the data on every restart.
+
+**With Docker** (works on a small server or any host that runs containers with a volume, such as Railway or Fly.io):
+
+```bash
+docker build -t import-value-checker .
+docker run -d -p 8000:8000 -v ivc-data:/data \
+  -e ADMIN_PASSWORD='choose-a-long-password' \
+  -e SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')" \
+  import-value-checker
+```
+
+Put it behind HTTPS (hosting platforms do this for you; on your own server use a reverse proxy such as Caddy). The Docker image already sets `COOKIE_SECURE=1`, so login only works over HTTPS; for a local test over plain `http`, add `-e COOKIE_SECURE=0`.
+
+Run a single copy of the app: SQLite and the login lock-out are designed for one process.
+
+For real customs data, your organisation will probably require hosting on its own network. The same Docker image works there.
+
+## Known limits
+
+- Market values are sample data until a real provider is connected.
+- The starting exchange rates are samples. Enter the official customs rates in Settings; the inspector can also set the rate per check.
+- The NHTSA database mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
+- Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.
+- FOB and CIF prices are recorded but not adjusted for freight and insurance.
+
+Research notes and ideas for where to take this next are in [docs/RESEARCH.md](docs/RESEARCH.md).

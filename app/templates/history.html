@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% set active = 'history' %}
+{% block content %}
+<h1>History</h1>
+<form method="get" action="/history" class="card">
+  <label>Search by VIN <input name="q" value="{{ q }}" maxlength="17" autocapitalize="characters" class="mono" placeholder="Full or part of a VIN"></label>
+  <label>Flag
+    <select name="flag">
+      <option value="">All</option>
+      {% for key, label in flag_labels.items() %}<option value="{{ key }}" {{ 'selected' if flag == key }}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <button class="btn primary" type="submit">Search</button>
+  <a class="btn" href="/history.csv?q={{ q | urlencode }}&flag={{ flag }}">Export to CSV</a>
+</form>
+{% if not checks %}<p class="muted">No checks found.</p>{% endif %}
+<ul class="list">
+  {% for c in checks %}
+  <li><a href="/checks/{{ c.id }}">
+    <span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>
+    <span class="grow">
+      <span class="mono">{{ c.vin }}</span><br>
+      <span class="muted">{{ c.created_at[:16] }} · {{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }}</span><br>
+      <span>{{ '{:,.0f}'.format(c.declared_price) }} {{ c.currency }} · {{ c.flag_label }}{% if c.diff_pct is not none %} ({{ '%+.0f' | format(c.diff_pct) }}%){% endif %}</span>
+    </span>
+  </a></li>
+  {% endfor %}
+</ul>
+{% endblock %}

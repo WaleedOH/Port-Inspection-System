@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% set active = 'new' %}
+{% block content %}
+<ol class="steps" id="steps"><li class="on">Photo</li><li>Details</li><li>Value</li></ol>
+<p class="note bad" id="error" role="alert" hidden></p>
+
+<section id="step1">
+  <h1>1. Photograph the paperwork</h1>
+  <div class="card">
+    <label class="filepick">Invoice or customs document
+      <input type="file" id="docPhoto" accept="image/*" capture="environment">
+    </label>
+    <img id="docPreview" class="preview" alt="Document photo preview" hidden>
+    <label class="filepick">VIN plate <span class="muted">(optional)</span>
+      <input type="file" id="vinPhoto" accept="image/*" capture="environment">
+    </label>
+    <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
+  </div>
+  <p class="muted">Tips: lay the page flat, fill the frame, avoid glare. Reader: {{ reader.name }}.</p>
+  <p class="note" id="progress" hidden></p>
+  <button class="btn primary" id="readBtn" type="button">Read photo</button>
+  <button class="btn" id="skipBtn" type="button">Type the details by hand</button>
+</section>
+
+<section id="step2" hidden>
+  <h1>2. Check the details</h1>
+  <p class="note" id="readNote" hidden></p>
+  <div class="card">
+    <label>VIN
+      <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono">
+    </label>
+    <button class="btn" id="vinBtn" type="button">Check VIN</button>
+    <div id="vinResult" aria-live="polite"></div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <label>Make <input id="make" autocomplete="off"></label>
+      <label>Model <input id="model" autocomplete="off"></label>
+    </div>
+    <div class="row">
+      <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
+      <label>Mileage <span class="muted">(optional)</span> <input id="mileage" inputmode="numeric"></label>
+    </div>
+    <div class="row">
+      <label>Declared price <input id="price" inputmode="decimal"></label>
+      <label>Currency
+        <select id="currency">
+          {% for code in settings.exchange_rates %}<option {{ 'selected' if code == settings.base_currency }}>{{ code }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Delivery term <span class="muted">(optional, e.g. FOB or CIF)</span> <input id="incoterm" maxlength="10" autocapitalize="characters"></label>
+    <label>Seller <input id="seller" autocomplete="off"></label>
+    <label>Buyer <input id="buyer" autocomplete="off"></label>
+  </div>
+  <button class="btn primary" id="toStep3" type="button">Continue</button>
+  <button class="btn" data-back="1" type="button">Back</button>
+</section>
+
+<section id="step3" hidden>
+  <h1>3. Market value</h1>
+  <div class="card" id="rateCard" hidden>
+    <label>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
+      <input id="rate" inputmode="decimal">
+    </label>
+    <p class="muted">Use the official customs rate for the declaration date.</p>
+  </div>
+  <div class="card">
+    <button class="btn" id="lookupBtn" type="button">Look up reference value</button>
+    <div id="lookupResult" aria-live="polite"></div>
+    <label>Reference market value ({{ settings.base_currency }})
+      <input id="market" inputmode="decimal">
+    </label>
+    <label>Where does this value come from? <input id="source" placeholder="e.g. price guide, auction result"></label>
+    <p class="muted">Leave the value empty if you have no reference; the check is saved without a flag.</p>
+  </div>
+  <div class="card">
+    <label>Notes <span class="muted">(optional)</span> <textarea id="notes" rows="3"></textarea></label>
+  </div>
+  <button class="btn primary" id="saveBtn" type="button">Compare and save</button>
+  <button class="btn" data-back="2" type="button">Back</button>
+</section>
+<script type="application/json" id="config">{{ client_config | safe }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/tesseract/tesseract.min.js"></script>
+<script src="/static/app.js"></script>
+{% endblock %}

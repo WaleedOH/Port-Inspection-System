@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% set active = 'settings' %}
+{% block content %}
+<h1>Settings</h1>
+{% if error %}<p class="note bad" role="alert">{{ error }}</p>{% endif %}
+{% if saved %}<p class="note good">Saved.</p>{% endif %}
+{% if not is_admin %}<p class="note">Only an administrator can change settings.</p>{% endif %}
+<form method="post" action="/settings" class="card">
+  <h2>Flag thresholds</h2>
+  <label>GREEN: declared price is at most this % below market
+    <input name="green_threshold" inputmode="decimal" value="{{ '%g' | format(settings.green_threshold) }}" {{ 'disabled' if not is_admin }}></label>
+  <label>YELLOW up to this % below market (anything lower is RED)
+    <input name="yellow_threshold" inputmode="decimal" value="{{ '%g' | format(settings.yellow_threshold) }}" {{ 'disabled' if not is_admin }}></label>
+  <h2>Currencies</h2>
+  <label>Base currency (market values are in this currency)
+    <input name="base_currency" maxlength="3" value="{{ settings.base_currency }}" {{ 'disabled' if not is_admin }}></label>
+  <label>Default exchange rates, one per line: how much base currency 1 unit is worth
+    <textarea name="exchange_rates" rows="9" class="mono" {{ 'disabled' if not is_admin }}>{{ rates_text }}</textarea></label>
+  <p class="muted">The starting rates are samples. Replace them with your authority's official rates. The inspector can still adjust the rate on each check.</p>
+  {% if is_admin %}<button class="btn primary" type="submit">Save settings</button>{% endif %}
+</form>
+
+<div class="card">
+  <h2>Modules in use</h2>
+  <dl>
+    <dt>Photo reader</dt><dd>{{ reader.name }}</dd>
+    <dt>Pricing</dt><dd>{{ provider.name }}</dd>
+  </dl>
+  <p class="muted">These are chosen with the DOCUMENT_READER and PRICING_PROVIDER environment variables (see the README).</p>
+</div>
+
+{% if is_admin %}
+<div class="card">
+  <h2>Inspector accounts</h2>
+  <ul class="list plain">
+    {% for u in users %}
+    <li><span class="grow">{{ u.username }}{% if u.is_admin %} <span class="muted">(admin)</span>{% endif %}</span>
+      {% if u.username != user %}<form method="post" action="/settings/users/{{ u.id }}/delete"><button class="link" type="submit">Remove</button></form>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/settings/users">
+    <label>New username <input name="username" autocapitalize="none" autocomplete="off" required></label>
+    <label>Password (at least 10 characters) <input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+    <label class="check"><input type="checkbox" name="is_admin" value="1"> Administrator</label>
+    <button class="btn" type="submit">Add account</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

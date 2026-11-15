@@ -13,6 +13,15 @@ from . import db
 VPIC_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
 
 
+_ACRONYMS = {"Bmw": "BMW", "Gmc": "GMC", "Byd": "BYD", "Mg": "MG", "Mini": "MINI"}
+
+
+def _tidy_make(make: str) -> str | None:
+    """vPIC sends makes in capitals ('HONDA'); show 'Honda' but keep 'BMW'."""
+    make = make.strip().title()
+    return _ACRONYMS.get(make, make) or None
+
+
 def parse_vpic_response(payload: dict) -> dict:
     """Pick the few fields we need out of vPIC's ~150 fields."""
     row = (payload.get("Results") or [{}])[0]
@@ -20,7 +29,7 @@ def parse_vpic_response(payload: dict) -> dict:
     codes = [c.strip() for c in (row.get("ErrorCode") or "").split(",") if c.strip()]
     return {
         "available": True,
-        "make": (row.get("Make") or "").strip().title() or None,
+        "make": _tidy_make(row.get("Make") or ""),
         "model": (row.get("Model") or "").strip() or None,
         "year": int(year) if year.isdigit() else None,
         "manufacturer": (row.get("Manufacturer") or "").strip() or None,

@@ -50,6 +50,14 @@ pytest
 
 The tests cover VIN validation, the price comparison logic, the document parser, the mock pricing provider and the whole web flow.
 
+They include **40 real VINs** (34 makes, model years 1993–2015) from the open [vin-test-data](https://github.com/sen4ik/vin-test-data) dataset (MIT licence). Each was decoded once with the live NHTSA service and the answer is saved in `tests/data/real_vins.json`, so the tests run without internet. To call the live NHTSA service as well:
+
+```bash
+RUN_LIVE_VPIC=1 pytest
+```
+
+The real VINs are all from US-market vehicles. VINs from vehicles built for other markets are not covered by this test data yet.
+
 ## Settings (environment variables)
 
 No password or API key is ever written in the code. They are read from environment variables. Copy `.env.example` to `.env`, fill it in, and start with `uvicorn app.main:app --env-file .env`.

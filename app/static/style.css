@@ -84,3 +84,6 @@ dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
   .card { break-inside: avoid; }
   select, textarea { border: 0; padding: 0; min-height: 0; appearance: none; }
 }
+.bigprice { font-size: 1.9rem; font-weight: 800; margin: 4px 0; }
+details.card > summary { font-weight: 700; cursor: pointer; padding: 6px 0; min-height: 36px; }
+details.card[open] > summary { margin-bottom: 8px; }

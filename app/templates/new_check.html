@@ -1,63 +1,47 @@
 {% extends "base.html" %}
 {% set active = 'new' %}
 {% block content %}
-<ol class="steps" id="steps"><li class="on">Photo</li><li>Details</li><li>Value</li></ol>
+<h1>Check a vehicle</h1>
 <p class="note bad" id="error" role="alert" hidden></p>
 
-<section id="step1">
-  <h1>1. Photograph the paperwork</h1>
-  <div class="card">
-    <label class="filepick">Invoice or customs document
-      <input type="file" id="docPhoto" accept="image/*" capture="environment">
-    </label>
-    <img id="docPreview" class="preview" alt="Document photo preview" hidden>
-    <label class="filepick">VIN plate <span class="muted">(optional)</span>
-      <input type="file" id="vinPhoto" accept="image/*" capture="environment">
-    </label>
-    <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
-    <button class="btn" type="button" data-scan="1">Scan VIN barcode with camera</button>
-    <p class="note good" id="scanNote" hidden></p>
-    <p class="muted">Most VIN stickers (door frame, windscreen) have a barcode. Scanning it is far more reliable than reading the printed characters.</p>
+<div class="card">
+  <label>VIN
+    <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono" placeholder="Scan or type the 17 characters">
+  </label>
+  <div class="row">
+    <button class="btn" type="button" id="scanBtn">Scan barcode</button>
+    <button class="btn primary" type="button" id="lookupBtn">Look up</button>
   </div>
-  <p class="muted">Tips: lay the page flat, fill the frame, avoid glare. Reader: {{ reader.name }}.</p>
-  <p class="note" id="progress" hidden></p>
-  <button class="btn primary" id="readBtn" type="button">Read photo</button>
-  <button class="btn" id="skipBtn" type="button">Type the details by hand</button>
-</section>
+</div>
 
-<section id="step2" hidden>
-  <h1>2. Check the details</h1>
-  <p class="note" id="readNote" hidden></p>
-  <div class="card">
-    <label>VIN
-      <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono">
-    </label>
-    <div class="row">
-      <button class="btn" id="vinBtn" type="button">Check VIN</button>
-      <button class="btn" type="button" data-scan="1">Scan barcode</button>
-    </div>
-    <div id="vinResult" aria-live="polite"></div>
-  </div>
-  <div class="card" id="specCard" hidden>
-    <h2>How the factory built this car (from the VIN)</h2>
+<div id="result" hidden>
+  <div id="vinNotes" aria-live="polite"></div>
+
+  <div class="card" id="vehicleCard" hidden>
+    <h2 id="vehicleTitle"></h2>
     <dl id="specList"></dl>
-    <p class="muted">Badges, wheels and trim parts can be swapped; the VIN cannot. Compare these details with the actual vehicle: engine size and cylinders, drive type, body, and interior grade. Check that the VIN is the same on the dashboard, the door frame and the chassis stamp.</p>
-    <label>Does the vehicle in front of you match?
-      <select id="physical">
-        {% for key, label in physical_checks.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
-      </select>
-    </label>
+    <p class="muted" id="vehicleSource"></p>
   </div>
+
+  <div class="card" id="priceCard" hidden>
+    <h2>Expected price</h2>
+    <div id="priceFound" hidden>
+      <p class="bigprice"><span id="priceToday"></span></p>
+      <p>Typical range today: <strong id="priceRange"></strong></p>
+      <p id="priceNewLine">Manufacturer's price when new: <strong id="priceNew"></strong></p>
+      <p class="muted" id="priceSource"></p>
+    </div>
+    <div id="priceMissing" hidden>
+      <p class="note warn" id="priceMissingNote"></p>
+      <label>Manufacturer's price when new, in {{ settings.base_currency }}
+        <input id="newPrice" inputmode="decimal">
+      </label>
+      <button class="btn" type="button" id="usePriceBtn">Use this price</button>
+    </div>
+  </div>
+
   <div class="card">
-    <div class="row">
-      <label>Make <input id="make" autocomplete="off"></label>
-      <label>Model <input id="model" autocomplete="off"></label>
-    </div>
-    <label>Trim on paper <span class="muted">(optional, e.g. LX, Limited, Denali)</span> <input id="trim" autocomplete="off"></label>
-    <div class="row">
-      <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
-      <label>Mileage <span class="muted">(optional)</span> <input id="mileage" inputmode="numeric"></label>
-    </div>
+    <h2>Compare with the declared price <span class="muted">(optional)</span></h2>
     <div class="row">
       <label>Declared price <input id="price" inputmode="decimal"></label>
       <label>Currency
@@ -66,40 +50,51 @@
         </select>
       </label>
     </div>
-    <label>Delivery term <span class="muted">(optional, e.g. FOB or CIF)</span> <input id="incoterm" maxlength="10" autocapitalize="characters"></label>
-    <label>Seller <input id="seller" autocomplete="off"></label>
-    <label>Buyer <input id="buyer" autocomplete="off"></label>
-  </div>
-  <button class="btn primary" id="toStep3" type="button">Continue</button>
-  <button class="btn" data-back="1" type="button">Back</button>
-</section>
-
-<section id="step3" hidden>
-  <h1>3. Market value</h1>
-  <div class="card" id="rateCard" hidden>
-    <label>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
+    <label id="rateRow" hidden>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
       <input id="rate" inputmode="decimal">
     </label>
-    <p class="muted">Use the official customs rate for the declaration date.</p>
+    <button class="btn primary" type="button" id="saveBtn">Compare and save</button>
   </div>
-  <div class="card">
-    <label>Manufacturer's price when new, in USD <span class="muted">(MSRP, optional)</span>
-      <input id="newPrice" inputmode="decimal" placeholder="From the manufacturer's site or window sticker">
+
+  <details class="card">
+    <summary>More details (optional)</summary>
+    <label class="filepick">Photo of the invoice or customs document
+      <input type="file" id="docPhoto" accept="image/*" capture="environment">
     </label>
-    <button class="btn" id="lookupBtn" type="button">Estimate today's value</button>
-    <div id="lookupResult" aria-live="polite"></div>
-    <label>Reference market value ({{ settings.base_currency }})
-      <input id="market" inputmode="decimal">
+    <img id="docPreview" class="preview" alt="Document photo preview" hidden>
+    <button class="btn" type="button" id="readBtn" hidden>Read the details from this photo</button>
+    <p class="note" id="progress" hidden></p>
+    <label class="filepick">Photo of the VIN plate
+      <input type="file" id="vinPhoto" accept="image/*" capture="environment">
     </label>
-    <label>Where does this value come from? <input id="source" placeholder="e.g. price guide, auction result"></label>
-    <p class="muted">Leave the value empty if you have no reference; the check is saved without a flag.</p>
-  </div>
-  <div class="card">
-    <label>Notes <span class="muted">(optional)</span> <textarea id="notes" rows="3"></textarea></label>
-  </div>
-  <button class="btn primary" id="saveBtn" type="button">Compare and save</button>
-  <button class="btn" data-back="2" type="button">Back</button>
-</section>
+    <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
+    <h2>What the paperwork says</h2>
+    <div class="row">
+      <label>Make <input id="make" autocomplete="off"></label>
+      <label>Model <input id="model" autocomplete="off"></label>
+    </div>
+    <div class="row">
+      <label>Trim <input id="trim" autocomplete="off"></label>
+      <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
+    </div>
+    <div class="row">
+      <label>Mileage <input id="mileage" inputmode="numeric"></label>
+      <label>Delivery term <input id="incoterm" maxlength="10" autocapitalize="characters" placeholder="FOB, CIF"></label>
+    </div>
+    <label>Seller <input id="seller" autocomplete="off"></label>
+    <label>Buyer <input id="buyer" autocomplete="off"></label>
+    <label>Does the vehicle in front of you match the VIN details?
+      <select id="physical">
+        {% for key, label in physical_checks.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Use a different reference value ({{ settings.base_currency }}) <input id="market" inputmode="decimal"></label>
+    <label>Where does that value come from? <input id="source"></label>
+    <label>Notes <textarea id="notes" rows="3"></textarea></label>
+    <button class="btn" type="button" id="relookBtn">Look up again with these details</button>
+  </details>
+</div>
+
 <div id="scanner" class="scanner" role="dialog" aria-label="Scan VIN barcode" hidden>
   <video id="scanVideo" playsinline muted></video>
   <p id="scanStatus">Point the camera at the VIN barcode</p>

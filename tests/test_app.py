@@ -276,3 +276,32 @@ def test_comparison_with_earlier_declarations(logged_in):
     assert "typical: 16,000" in page and "-50.0%" in page
     first = logged_in.get("/history?q=4S4BRBCC3E3279476").text
     assert "4S4BRBCC3E3279476" in first
+
+
+# ---------- the one-step lookup ----------
+def test_one_step_lookup_returns_vehicle_and_expected_price(logged_in, monkeypatch):
+    monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: {
+        "available": True, "make": "Lincoln", "model": "Zephyr", "year": 2006, "trim": "Zephyr", "series": None,
+        "base_price": None, "clean": True, "message": None, "source": "own database",
+        "specs": {"Engine": "3.0L 6-cyl", "Drive": "FWD/Front-Wheel Drive"}})
+    vin = "3LNHM261X6R633550"
+    # Only the VIN is sent. The vehicle comes back; no price is stored yet.
+    r = logged_in.post("/api/lookup", json={"vin": vin}).json()
+    assert r["validation"]["ok"] and r["decoded"]["model"] == "Zephyr" and r["decoded"]["specs"]["Engine"]
+    assert r["value"] is None and r["mismatches"] == []
+    # Give the manufacturer's price once...
+    r = logged_in.post("/api/lookup", json={"vin": vin, "new_price": "29,660"}).json()
+    assert r["value"]["new_price"] == 29660 and 0 < r["value"]["value"] < 29660
+    # ...and another car of the same model gets the expected price from the VIN alone.
+    r = logged_in.post("/api/lookup", json={"vin": "3LNHM26156R000001"}).json()
+    assert r["value"]["new_price"] == 29660 and "from our price book" in r["value"]["source"]
+    # Saving needs only the VIN and the declared price.
+    saved = logged_in.post("/api/checks", data={"vin": vin, "declared_price": "900", "use_provider": "1"})
+    page = logged_in.get(saved.json()["url"]).text
+    assert "Needs review" in page and "29,660 USD" in page and "2006 Lincoln Zephyr" in page
+
+
+def test_one_step_lookup_with_a_bad_vin(logged_in):
+    r = logged_in.post("/api/lookup", json={"vin": "1HGCM82633A00435O"}).json()
+    assert not r["validation"]["ok"] and r["value"] is None and r["decoded"] is None
+    assert logged_in.post("/api/lookup", json={"vin": ""}).json()["validation"]["errors"] == ["VIN is empty."]

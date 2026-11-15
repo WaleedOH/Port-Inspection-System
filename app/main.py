@@ -273,6 +273,52 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
     return value, note
 
 
+def _learn_price(vin: str, make: str, model: str, trim: str, year: int, typed: float | None,
+                 user: str, where: str) -> None:
+    """Remember a typed-in manufacturer's price, so the next car with the same
+    VIN pattern gets it automatically. This is how the price book fills itself."""
+    pattern = vin_pattern(vin)
+    if not (typed and typed > 0 and pattern and make.strip() and model.strip() and year):
+        return
+    known = db.find_price(pattern, "", "", 0)
+    if not known or known["msrp"] != typed:
+        db.add_price(make=make, model=model, trim=trim, year=year, msrp=typed, vin_pattern=pattern,
+                     added_by=user, source=where)
+
+
+def _to_int(value) -> int | None:
+    text = str(value if value is not None else "").replace(",", "").strip()
+    return int(float(text)) if text.replace(".", "", 1).isdigit() else None
+
+
+@app.post("/api/lookup")
+async def lookup(request: Request):
+    """The one-step lookup: VIN in, vehicle details and expected price out."""
+    body = await request.json()
+    user = request.session["user"]
+    paper = {k: str(body.get(k) or "").strip() for k in ("make", "model", "trim")}
+    paper_year = _to_int(body.get("year"))
+    report = _vin_report(str(body.get("vin", "")), paper["make"], paper["model"], paper_year, paper["trim"])
+    validation, decoded = report["validation"], report["decoded"] or {}
+    report["previous"] = [dict(r) for r in db.previous_checks_for_vin(validation["vin"])] if validation["vin"] else []
+    report["value"], report["note"], report["searches_online"] = None, "", research.enabled()
+    if validation["ok"]:
+        # What the paper says wins when given; otherwise use what the VIN says.
+        make, model = paper["make"] or decoded.get("make") or "", paper["model"] or decoded.get("model") or ""
+        trim = paper["trim"] or decoded.get("trim") or decoded.get("series") or ""
+        year = paper_year or decoded.get("year") or 0
+        try:
+            typed = float(str(body["new_price"]).replace(",", "")) if body.get("new_price") not in (None, "") else None
+        except ValueError:
+            raise HTTPException(422, "The manufacturer's price must be a number.")
+        value, report["note"] = _lookup_value(validation["vin"], make, model, year,
+                                              _to_int(body.get("mileage")), typed, trim, user)
+        if value:
+            report["value"] = value.to_dict()
+            _learn_price(validation["vin"], make, model, trim, year, typed, user, "Typed in during a lookup")
+    return report
+
+
 @app.post("/api/market-value")
 async def market_value(request: Request):
     body = await request.json()
@@ -341,9 +387,11 @@ async def create_check(
     market = _number(market_value, "Market value")
     if use_provider == "1":
         # Ask the provider again on the server instead of trusting the browser.
-        found, _ = _lookup_value(validation["vin"], make, model, int(year_n or 0),
-                                 int(mileage_n) if mileage_n is not None else None,
-                                 _number(new_price, "Manufacturer's price"), trim, request.session["user"])
+        found, _ = _lookup_value(
+            validation["vin"], make.strip() or decoded.get("make") or "", model.strip() or decoded.get("model") or "",
+            int(year_n or decoded.get("year") or 0), int(mileage_n) if mileage_n is not None else None,
+            _number(new_price, "Manufacturer's price"),
+            trim.strip() or decoded.get("trim") or decoded.get("series") or "", request.session["user"])
         if found:
             market, low, high, market_source = found.value, found.low, found.high, found.source
     elif market is not None:
@@ -380,16 +428,10 @@ async def create_check(
         "vin_photo_file": _save_photo(await _read_photo(vin_plate)),
         "notes": notes.strip()[:2000],
     })
-    # Remember a typed-in manufacturer's price, so the next car with the same
-    # VIN pattern gets it automatically. This is how the price book fills itself.
-    typed = _number(new_price, "Manufacturer's price")
-    pattern = vin_pattern(validation["vin"])
-    if typed and typed > 0 and pattern and make.strip() and model.strip() and year_n:
-        known = db.find_price(pattern, "", "", 0)
-        if not known or known["msrp"] != typed:
-            db.add_price(make=make, model=model, trim=trim, year=int(year_n), msrp=typed,
-                         vin_pattern=pattern, added_by=request.session["user"],
-                         source=f"Typed in during check #{check_id}")
+    _learn_price(validation["vin"], make.strip() or decoded.get("make") or "",
+                 model.strip() or decoded.get("model") or "", trim.strip() or decoded.get("trim") or "",
+                 int(year_n or decoded.get("year") or 0), _number(new_price, "Manufacturer's price"),
+                 request.session["user"], f"Typed in during check #{check_id}")
     return {"id": check_id, "url": f"/checks/{check_id}"}
 
 

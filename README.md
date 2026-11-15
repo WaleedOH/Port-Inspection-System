@@ -6,17 +6,20 @@ A prototype web app for customs and port inspectors. The inspector photographs a
 
 ## What it does
 
-1. **Photo.** The inspector takes or uploads a photo of the invoice or customs document, and optionally the VIN plate.
-2. **Reading.** The app reads the VIN, declared price, currency, make, model, year, seller, buyer, mileage and delivery term from the photo.
-   For the VIN, the app first looks for a **barcode** (live camera scan, or in the photo), which is far more reliable than reading printed characters. Without a barcode it reads the VIN plate text.
-3. **Correction.** The inspector sees every field and fixes mistakes before continuing.
-4. **VIN check.** The app checks the VIN (17 characters, no I/O/Q, check digit) and decodes it with **its own built-in vehicle database**, so it needs no internet connection and no outside service.
-   When the check digit fails, it offers "did you mean?" fixes for look-alike characters (S/5, B/8, Z/2, G/6, D/0, and I/O/Q). It never changes the VIN by itself.
-5. **Vehicle identity check.** The VIN records how the factory built the car: trim, engine, drive type, body. Badges and trim parts can be swapped, but the VIN cannot, so the app shows these details for the inspector to compare with the actual vehicle, and the inspector records whether it matches. If the trim on the paperwork differs from the trim in the VIN, or the vehicle does not match, the check gets a separate **"Needs review: vehicle identity"** flag, even when the price looks fine.
-   It also warns when the decoded make, model or year differs from the paper, and when the same VIN was checked before.
-6. **Market value.** It estimates today's value from the manufacturer's price when new (typed in by the inspector, or from NHTSA when available), or the inspector types a market value in with its source.
-7. **Result.** It shows declared price, market value, the difference in %, a flag, and a plain-language "Why this flag?" explanation. The page can be printed or saved as PDF.
-8. **History.** Every check is saved with date, inspector, photos, all values and the officer's decision. The history page has search by VIN and export to CSV.
+The main screen does one thing: **scan or type a VIN, and see the vehicle and its expected price.**
+
+1. **VIN.** Scan the barcode on the VIN sticker with the camera, or type the 17 characters, and tap "Look up".
+2. **Vehicle.** The app checks the VIN (length, no I/O/Q, check digit) and shows how the factory built the car: year, make, model, trim, engine, drive type, body. This comes from its own built-in vehicle database. If the check digit fails, it offers "did you mean?" fixes for look-alike characters.
+3. **Expected price.** It shows the manufacturer's price when new and an estimate of today's value with a typical range, and says where the figures come from. If no price is stored for that model yet, it asks for the manufacturer's price once and remembers it.
+4. **Compare (optional).** Type the declared price and tap "Compare and save". The result page shows the difference in %, a flag, and a plain-language "Why this flag?" explanation, and can be printed or saved as PDF.
+
+Everything else is optional, under **More details**:
+
+- a photo of the paperwork, which the app can read to fill in what the paper says (make, model, trim, year, price, seller, buyer);
+- the trim on paper and whether the actual vehicle matches the VIN details. If the paper or the vehicle disagrees with the VIN, the check gets a separate **"Needs review: vehicle identity"** flag, even when the price looks fine;
+- mileage, delivery term, a different reference value, and notes.
+
+Every saved check goes into the **History** page, with search by VIN and export to CSV. The app also warns when the same VIN was checked before.
 
 | Flag | Default rule | Label |
 |---|---|---|

@@ -1,15 +1,17 @@
-"""The app's own reference price list: manufacturer's price when new.
+"""The app's own price store: manufacturer's price when new.
 
-app/vehicle_data/reference_prices.csv.gz ships with the app (see
-scripts/build_price_list.py for where it comes from). It lists the versions
-of each model and year with their price, engine, cylinders and drive type.
+Every *.csv.gz file in app/vehicle_data/prices/ is one price dataset that
+ships with the app (SOURCES.json says where each came from; add more with
+scripts/import_prices.py). Each row is one version of a model and year with
+its price and, where the dataset has them, trim, engine and drive type.
 
-The list has no trim names. So for a VIN we find the versions of the same
-make, model and year, narrow them down with what the VIN tells us (number of
-cylinders, drive type, horsepower), and report the RANGE of prices left.
+For a VIN we find the versions of the same make, model and year, narrow
+them down with what the VIN tells us (trim, cylinders, drive type,
+horsepower), and report the RANGE of prices left.
 """
 import csv
 import gzip
+import json
 import re
 import statistics
 from collections import defaultdict
@@ -17,10 +19,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-FILE = Path(__file__).parent / "vehicle_data" / "reference_prices.csv.gz"
+STORE = Path(__file__).parent / "vehicle_data" / "prices"
 MAX_YEAR_GAP = 5          # how far to look for the same model in another year
 YEARLY_CHANGE = 0.015     # typical yearly rise in new-car list prices, used to adjust
-SOURCE = "reference price list (open Edmunds-derived dataset, model years 1990-2017)"
+
+
+@lru_cache(maxsize=1)
+def sources() -> dict:
+    index = STORE / "SOURCES.json"
+    return json.loads(index.read_text()) if index.exists() else {}
 
 
 def _key(text: str | None) -> str:
@@ -36,27 +43,45 @@ class ReferencePrice:
     year: int            # model year the prices were recorded for
     narrowed_by: list[str]
     adjusted: bool = False   # True when taken from another model year and scaled
+    datasets: tuple[str, ...] = ()   # which stored datasets the prices came from
 
     def describe(self, wanted_year: int) -> str:
         how = f", narrowed by {' and '.join(self.narrowed_by)}" if self.narrowed_by else ""
         other = (f"; taken from the {self.year} model (the nearest year on file) and adjusted "
                  f"{YEARLY_CHANGE:.1%} a year, so treat it as approximate") if self.adjusted else ""
-        return f"from our {SOURCE}: {self.versions} version{'s' if self.versions != 1 else ''} of this model{how}{other}"
+        names = [sources().get(d, {}).get("name", d) for d in self.datasets]
+        return (f"from our built-in price list ({'; '.join(names)}): "
+                f"{self.versions} version{'s' if self.versions != 1 else ''} of this model{how}{other}")
 
 
 @lru_cache(maxsize=1)
 def _table() -> dict:
     by_make: dict[str, dict[tuple[str, int], list[dict]]] = defaultdict(lambda: defaultdict(list))
-    if FILE.exists():
-        with gzip.open(FILE, "rt", newline="") as handle:
+    for path in sorted(STORE.glob("*.csv.gz")):
+        dataset = path.name[:-len(".csv.gz")]
+        with gzip.open(path, "rt", newline="") as handle:
             for row in csv.DictReader(handle):
                 row["msrp"] = float(row["msrp"])
+                row["dataset"] = dataset
                 by_make[_key(row["make"])][(_key(row["model"]), int(row["year"]))].append(row)
     return by_make
 
 
 def count() -> int:
     return sum(len(rows) for models in _table().values() for rows in models.values())
+
+
+def counts_by_dataset() -> dict[str, int]:
+    totals: dict[str, int] = defaultdict(int)
+    for models in _table().values():
+        for rows in models.values():
+            for row in rows:
+                totals[row["dataset"]] += 1
+    return dict(totals)
+
+
+def _words(text: str | None) -> set[str]:
+    return {w for w in re.split(r"[^a-z0-9]+", (text or "").lower()) if len(w) >= 2}
 
 
 def _model_rows(make: str, model: str, year: int) -> list[dict]:
@@ -110,6 +135,14 @@ def find(make: str, model: str, year: int, specs: dict | None = None) -> Referen
         return None
 
     narrowed = []
+    # Trim first: it says the most about price. Only datasets with trim names can use it.
+    trim_words = _words(specs.get("Trim")) | _words(specs.get("Series"))
+    if trim_words:
+        kept = [r for r in rows if r.get("trim") and _words(r["trim"]) & trim_words]
+        if kept:
+            if len(kept) < len(rows):
+                narrowed.append(f"trim ({specs.get('Trim') or specs.get('Series')})")
+            rows = kept
     engine = specs.get("Engine") or ""
     cylinders = re.search(r"(\d+)-cyl", engine)
     if cylinders:
@@ -135,4 +168,5 @@ def find(make: str, model: str, year: int, specs: dict | None = None) -> Referen
     prices = sorted(round(r["msrp"] * scale, -1) for r in rows)
     return ReferencePrice(low=prices[0], high=prices[-1], typical=statistics.median(prices),
                           versions=len(prices), year=used_year, narrowed_by=narrowed,
-                          adjusted=used_year != year)
+                          adjusted=used_year != year,
+                          datasets=tuple(sorted({r["dataset"] for r in rows})))

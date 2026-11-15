@@ -144,7 +144,7 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 
 ### The app's own reference price list
 
-The app ships with **10,086 manufacturer prices** (MSRP when new) for US-market cars, model years 1990 to 2017, in `app/vehicle_data/reference_prices.csv.gz`. `app/reference_prices.py` reads it, so a price appears from the VIN alone, with nothing typed and no internet.
+The app ships with **10,086 manufacturer prices** (MSRP when new) for US-market cars, model years 1990 to 2017, in `app/vehicle_data/prices/`. `app/reference_prices.py` reads it, so a price appears from the VIN alone, with nothing typed and no internet.
 
 - The list has engine, cylinders and drive type for each version, but **no trim names**. So the app finds the versions of the same make, model and year, narrows them with what the VIN says (cylinders, drive, horsepower), and shows the **range** of prices that remain.
 - When the exact model year is not on file, it uses the nearest year within 5 years, scales the price by 1.5% a year, and says so.
@@ -152,7 +152,17 @@ The app ships with **10,086 manufacturer prices** (MSRP when new) for US-market 
 - Whole makes are missing (Jeep, Ram and MINI among them), and there is nothing after 2017.
 - A price in the price book (below) always wins over this list.
 
-**Where it comes from:** the open "Car Features and MSRP" dataset, originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds the file, and newer model years can be added as extra rows with the same columns.
+**Adding more price data.** The store is a folder: every `*.csv.gz` file in `app/vehicle_data/prices/` is one dataset, and `SOURCES.json` records where each came from. Any CSV that lists cars with a manufacturer's price can be added with one command, and the app uses it from the next start:
+
+```bash
+python scripts/import_prices.py new_cars.csv --name cars_2018_2024 \
+    --title "New car prices 2018-2024 (where it came from)" \
+    --make Make --model Model --year Year --msrp MSRP --trim Trim
+```
+
+When a dataset has trim names, the app uses the VIN's trim to narrow the price first.
+
+**Where it comes from:** the open "Car Features and MSRP" dataset, originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds that file.
 
 ### The app's own vehicle database
 

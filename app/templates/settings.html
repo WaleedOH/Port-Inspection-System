@@ -32,7 +32,7 @@
     <dt>VIN decoder</dt><dd>{{ decoder }}</dd>
     <dt>Photo reader</dt><dd>{{ reader.name }}</dd>
     <dt>Pricing</dt><dd>{{ provider.name }}</dd>
-    <dt>Reference price list</dt><dd>{{ '{:,}'.format(reference_count) }} manufacturer prices built in (model years 1990 to 2017)</dd>
+    <dt>Built-in price list</dt><dd>{% for source, total in reference_sources %}{{ '{:,}'.format(total) }} prices: {{ source.name or 'unnamed dataset' }}{% if source.years %} ({{ source.years }}){% endif %}{{ '' if loop.last else '; ' }}{% else %}empty{% endfor %}</dd>
     <dt>Online price search</dt><dd>{{ 'On: used only when our own data has no price' if research_on else 'Off' }}</dd>
   </dl>
   <p class="muted">These are chosen with the VIN_DECODER, DOCUMENT_READER, PRICING_PROVIDER and PRICE_RESEARCH environment variables (see the README).</p>

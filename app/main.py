@@ -674,7 +674,8 @@ def _settings_page(request: Request, error: str | None = None, saved: bool = Fal
                 schedule_text=schedule_text,
                 saved=saved, users=db.list_users(), reader=get_reader(), provider=get_provider(),
                 decoder=vpic.decoder_name(), research_on=research.enabled(),
-                reference_count=reference_prices.count(),
+                reference_sources=[(reference_prices.sources().get(name, {}), total)
+                                   for name, total in sorted(reference_prices.counts_by_dataset().items())],
                 storage="PostgreSQL database (permanent)" if db.is_postgres() else
                         ("SQLite file in temporary storage (erased regularly)" if config.is_ephemeral()
                          else "SQLite file in the data folder"))

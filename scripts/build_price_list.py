@@ -8,15 +8,15 @@ package, file data/cardata.rda).
     pip install pyreadr
     python scripts/build_price_list.py path/to/cardata.rda
 
-It writes app/vehicle_data/reference_prices.csv.gz. To add newer model years,
-append rows with the same columns to the CSV and rebuild.
+It writes app/vehicle_data/prices/edmunds_1990_2017.csv.gz. Other datasets are
+added next to it with scripts/import_prices.py.
 """
 import csv
 import gzip
 import sys
 from pathlib import Path
 
-OUT = Path(__file__).parent.parent / "app" / "vehicle_data" / "reference_prices.csv.gz"
+OUT = Path(__file__).parent.parent / "app" / "vehicle_data" / "prices" / "edmunds_1990_2017.csv.gz"
 DRIVE = {"front wheel drive": "FWD", "rear wheel drive": "RWD",
          "all wheel drive": "AWD", "four wheel drive": "4WD"}
 
@@ -37,12 +37,12 @@ def build(source: str) -> None:
         # Cars from before 2001 carry a placeholder price of 2,000 in this dataset.
         if r.msrp <= 2500:
             continue
-        rows.add((str(r.make), str(r.model), int(r.year), number(r.engine_cylinders), number(r.engine_hp),
+        rows.add((str(r.make), str(r.model), int(r.year), "", number(r.engine_cylinders), number(r.engine_hp),
                   DRIVE.get(str(r.driven_wheels), ""), number(r.number_of_doors), str(r.vehicle_style),
                   int(r.msrp)))
     with gzip.open(OUT, "wt", newline="", compresslevel=9) as handle:
         writer = csv.writer(handle)
-        writer.writerow(["make", "model", "year", "cylinders", "hp", "drive", "doors", "style", "msrp"])
+        writer.writerow(["make", "model", "year", "trim", "cylinders", "hp", "drive", "doors", "style", "msrp"])
         writer.writerows(sorted(rows))
     print(f"{len(rows):,} prices written, {OUT.stat().st_size / 1000:.0f} KB")
 

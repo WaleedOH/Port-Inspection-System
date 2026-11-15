@@ -118,3 +118,44 @@ def test_nhtsa_base_price_is_read_when_present():
                                                    "BasePrice": "17450", "ErrorCode": "0"}]})
     assert with_price["base_price"] == 17450.0
     assert parse_vpic_response({"Results": [{"Make": "FORD", "BasePrice": ""}]})["base_price"] is None
+
+
+def test_importing_a_price_dataset_cleans_and_maps_columns():
+    import sys
+    sys.path.insert(0, "scripts")
+    from import_prices import normalise
+    records = [
+        {"Brand": "Jeep", "Name": "Wrangler", "MY": "2021", "Version": "Rubicon", "Price": "$38,695", "Drivetrain": "Four-Wheel Drive", "Cyl": "6"},
+        {"Brand": "Jeep", "Name": "Wrangler", "MY": "2021", "Version": "Rubicon", "Price": "$38,695", "Drivetrain": "Four-Wheel Drive", "Cyl": "6"},  # duplicate
+        {"Brand": "Jeep", "Name": "", "MY": "2021", "Version": "Sport", "Price": "28000"},          # no model
+        {"Brand": "Jeep", "Name": "Gladiator", "MY": "21", "Version": "Sport", "Price": "33000"},   # bad year
+        {"Brand": "Jeep", "Name": "Compass", "MY": "2021", "Version": "Sport", "Price": "call"},    # no price
+    ]
+    mapping = {"make": "Brand", "model": "Name", "year": "MY", "trim": "Version", "msrp": "Price",
+               "drive": "Drivetrain", "cylinders": "Cyl"}
+    rows, dropped = normalise(records, mapping)
+    assert rows == [("Jeep", "Wrangler", 2021, "Rubicon", "6", "", "4WD", "", "", 38695)] and dropped == 3
+
+
+def test_trim_names_narrow_the_price_when_a_dataset_has_them(tmp_path, monkeypatch):
+    import csv, gzip
+    from app import reference_prices as rp
+    with gzip.open(tmp_path / "demo.csv.gz", "wt", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["make", "model", "year", "trim", "cylinders", "hp", "drive", "doors", "style", "msrp"])
+        writer.writerows([["Jeep", "Wrangler", 2021, "Sport", "6", "", "4WD", "", "", 28900],
+                          ["Jeep", "Wrangler", 2021, "Sahara", "6", "", "4WD", "", "", 39000],
+                          ["Jeep", "Wrangler", 2021, "Rubicon 392", "8", "", "4WD", "", "", 74000]])
+    monkeypatch.setattr(rp, "STORE", tmp_path)
+    rp._table.cache_clear()
+    rp.sources.cache_clear()
+    try:
+        everything = rp.find("Jeep", "Wrangler", 2021)
+        assert (everything.low, everything.high, everything.versions) == (28900, 74000, 3)
+        rubicon = rp.find("Jeep", "Wrangler", 2021, {"Trim": "Rubicon"})
+        assert (rubicon.low, rubicon.high) == (74000, 74000) and "trim (Rubicon)" in rubicon.narrowed_by
+        assert rp.find("Jeep", "Wrangler", 2021, {"Trim": "Willys"}).versions == 3     # unknown trim: keep all
+        assert rp.counts_by_dataset() == {"demo": 3}
+    finally:
+        rp._table.cache_clear()
+        rp.sources.cache_clear()

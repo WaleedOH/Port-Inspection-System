@@ -101,7 +101,7 @@ def test_expected_value_is_recomputed_on_server(logged_in):
         "vin": VIN, "make": "GMC", "model": "Terrain", "year": "2015", "declared_price": "2500",
         "currency": "USD", "market_value": "1", "use_provider": "1"})
     page = logged_in.get(r.json()["url"]).text
-    assert "reference price list" in page      # browser-sent value "1" was ignored
+    assert "built-in price list" in page      # browser-sent value "1" was ignored
     assert "typical range" in page and "Mock sample data" not in page
 
 
@@ -387,7 +387,7 @@ def test_reference_price_list_gives_a_range_from_the_vin_alone(logged_in, own_da
     value = r["value"]
     assert value and value["new_price_low"] < value["new_price"] < value["new_price_high"]
     assert 20000 < value["new_price_low"] and value["new_price_high"] < 45000
-    assert "reference price list" in value["source"] and "all-wheel drive" in value["source"]
+    assert "built-in price list" in value["source"] and "all-wheel drive" in value["source"]
     assert "nearest year on file" in value["source"]          # the list has 2015, not 2013
     assert value["low"] < value["value"] < value["high"]
     # A price in our own price book still wins over the built-in list.

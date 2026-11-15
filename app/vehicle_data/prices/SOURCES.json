@@ -1,0 +1,7 @@
+{
+  "edmunds_1990_2017": {
+    "name": "Car Features and MSRP dataset (Edmunds-derived, via Kaggle/CooperUnion and the qacBase R package)",
+    "years": "1990-2017",
+    "url": "https://www.kaggle.com/datasets/CooperUnion/cardataset"
+  }
+}

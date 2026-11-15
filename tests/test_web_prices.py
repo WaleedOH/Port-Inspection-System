@@ -56,10 +56,10 @@ def web(monkeypatch):
 
 
 def test_first_working_site_wins_and_the_result_is_stored(web):
-    web.use({"caranddriver.com": (403, ""), "motortrend.com": (200, TEXT_PAGE)})
+    web.use({"motortrend.com": (403, ""), "caranddriver.com": (200, TEXT_PAGE)})
     price, note = web_prices.find("Jeep", "Wrangler", 2021)
-    assert (price.low, price.high, price.site) == (28900, 74995, "MotorTrend") and note == ""
-    assert not any("cars.com" in url for url in web.visited)       # stopped after the first success
+    assert (price.low, price.high, price.site) == (28900, 74995, "Car and Driver") and note == ""
+    assert not any("cars.com" in url for url in web.visited)       # stopped once it had a price range
     pages_before = len(web.visited)
     again, _ = web_prices.find("JEEP", "wrangler", 2021)             # answered from our own database
     assert again.low == 28900 and len(web.visited) == pages_before
@@ -104,3 +104,20 @@ def test_lookup_goes_online_only_when_our_data_has_no_exact_price(web, monkeypat
 def test_lookup_is_off_in_tests_by_default():
     assert web_prices.enabled() is False
     assert web_prices.find("Jeep", "Compass", 2019) == (None, "")
+
+
+def test_a_single_starting_price_is_widened_by_the_next_site(web):
+    one_price = JSON_LD_PAGE.replace('"lowPrice": "28900", "highPrice": 74995', '"price": 28900')
+    web.use({"motortrend.com": (200, one_price), "caranddriver.com": (200, TEXT_PAGE)})
+    price, _ = web_prices.find("Jeep", "Wrangler", 2021)
+    assert (price.low, price.high, price.site) == (28900, 74995, "MotorTrend and Car and Driver")
+
+
+def test_other_names_for_the_same_model_are_tried(web):
+    assert web_prices.model_names("BMW", "328i") == ["328i", "3 Series"]
+    assert web_prices.model_names("Chevrolet", "Silverado") == ["Silverado", "Silverado 1500"]
+    assert web_prices.model_names("Toyota", "Camry") == ["Camry"]
+    page = JSON_LD_PAGE.replace("2021 Jeep Wrangler", "2012 BMW 3-Series")
+    web.use({"/bmw/3-series/2012": (200, page)})
+    price, _ = web_prices.find("BMW", "328i", 2012)
+    assert price is not None and any("/bmw/328i/2012" in url for url in web.visited)

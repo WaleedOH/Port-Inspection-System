@@ -34,12 +34,29 @@ RETRY_NOT_FOUND_AFTER_DAYS = 14
 # Public pages that show the manufacturer's price for a model and year.
 # {make}, {model} are lower-case with the given separator; {year} is 4 digits.
 SITES = [
-    ("Car and Driver", "https://www.caranddriver.com/{make}/{model}-{year}", "-"),
     ("MotorTrend", "https://www.motortrend.com/cars/{make}/{model}/{year}/", "-"),
+    ("Car and Driver", "https://www.caranddriver.com/{make}/{model}-{year}", "-"),
     ("Cars.com", "https://www.cars.com/research/{make}-{model}-{year}/", "_"),
     ("J.D. Power", "https://www.jdpower.com/cars/{year}/{make}/{model}", "-"),
     ("The Car Connection", "https://www.thecarconnection.com/overview/{make}_{model}_{year}", "-"),
 ]
+
+
+def model_names(make: str, model: str) -> list[str]:
+    """The name to ask for, plus other names the same car goes by on the web.
+    The vehicle database says '328i' and 'Silverado'; price pages say
+    '3 Series' and 'Silverado 1500'."""
+    names = [model]
+    key, make_key = _key(model), _key(make)
+    if make_key == "bmw" and key[:1].isdigit():
+        names.append(f"{key[0]} Series")
+    if make_key == "mazda" and re.fullmatch(r"mazda\d", key):
+        names += [f"Mazda {key[-1]}", key[-1]]
+    if make_key in ("chevrolet", "gmc") and key in ("silverado", "sierra"):
+        names.append(f"{model} 1500")
+    if make_key == "mercedesbenz" and re.fullmatch(r"[a-z]{1,3}\d{2,3}", key):
+        names.append(f"{re.match('[a-z]+', key).group(0).upper()}-Class")
+    return names
 
 
 @dataclass
@@ -183,16 +200,27 @@ def _new_client() -> httpx.Client:
 
 
 def fetch(make: str, model: str, year: int) -> tuple[WebPrice | None, list[dict]]:
-    """Ask the sites one after another and stop at the first price."""
-    tried = []
+    """Ask the sites one after another. Stop as soon as one gives a price
+    RANGE (cheapest to dearest version); a single 'starting at' price is kept
+    but the next site is still asked, in case it has the range."""
+    tried, prices, sites, url = [], [], [], ""
     with _new_client() as client:
         for site, pattern, separator in SITES:
-            outcome = try_site(client, site, pattern, separator, make, model, year)
-            tried.append(outcome)
-            if outcome["result"] == "found":
-                prices = outcome["prices"]
-                return WebPrice(prices[0], prices[-1], site, outcome["url"], db.now()), tried
-    return None, tried
+            for name in model_names(make, model):
+                outcome = try_site(client, site, pattern, separator, make, name, year)
+                tried.append(outcome)
+                if outcome["result"] == "found":
+                    prices += outcome["prices"]
+                    sites.append(site)
+                    url = url or outcome["url"]
+                    break
+                if outcome["result"].startswith(("not allowed", "site answered 403", "could not be reached")):
+                    break       # the site itself said no: another name will not help
+            if len(set(prices)) >= 2:
+                break
+    if not prices:
+        return None, tried
+    return WebPrice(min(prices), max(prices), " and ".join(sites), url, db.now()), tried
 
 
 def find(make: str, model: str, year: int) -> tuple[WebPrice | None, str]:
@@ -219,16 +247,21 @@ def find(make: str, model: str, year: int) -> tuple[WebPrice | None, str]:
 
 # ---------- self-test, shown to administrators ----------
 _last_selftest: tuple[float, list[dict]] | None = None
+SELFTEST_CARS = [("Toyota", "Camry", 2020), ("Ram", "1500", 2014), ("Jeep", "Wrangler", 2022),
+                 ("BMW", "328i", 2012), ("Chevrolet", "Silverado", 2019), ("Nissan", "Patrol", 2021)]
 
 
 def selftest() -> list[dict]:
-    """Try every site with one well-known car, to show which sources work
-    from this server. Runs at most once every 10 minutes."""
+    """Look up a fixed handful of well-known cars, to show which sources work
+    from this server. Nothing is stored. Runs at most once every 10 minutes."""
     global _last_selftest
     if _last_selftest and time.time() - _last_selftest[0] < 600:
         return _last_selftest[1]
-    with _new_client() as client:
-        results = [try_site(client, site, pattern, separator, "Toyota", "Camry", 2020)
-                   for site, pattern, separator in SITES]
+    results = []
+    for make, model, year in SELFTEST_CARS:
+        price, tried = fetch(make, model, year)
+        results.append({"car": f"{year} {make} {model}",
+                        "price": [price.low, price.high, price.site] if price else None,
+                        "tried": [f"{t['site']}: {t['result']}" for t in tried]})
     _last_selftest = (time.time(), results)
     return results

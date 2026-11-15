@@ -146,10 +146,9 @@ def healthz():
 
 @app.get("/healthz/price-sources")
 def price_sources():
-    """Which public price pages can this server read? A fixed self-test with
-    one well-known car; it never takes input and runs at most every 10 minutes."""
-    return {"enabled": web_prices.enabled(), "sample": "2020 Toyota Camry",
-            "sites": [{k: t[k] for k in ("site", "result", "prices")} for t in web_prices.selftest()]}
+    """Which public price pages can this server read? A fixed self-test with a
+    handful of well-known cars; it takes no input and runs at most every 10 minutes."""
+    return {"enabled": web_prices.enabled(), "cars": web_prices.selftest()}
 
 
 @app.get("/login")

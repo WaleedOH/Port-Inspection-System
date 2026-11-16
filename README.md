@@ -1,5 +1,7 @@
 # Import Value Checker
 
+> **Picking this project up?** Start with [docs/HANDOFF.md](docs/HANDOFF.md): what is built, what is proven, and what to do next.
+
 A prototype web app for customs and port inspectors. The inspector photographs a vehicle's import paperwork, and the app compares the declared price with a reference market value.
 
 > ⚠️ A flag from this app is **never proof of fraud**. It is a risk indicator that means "this declaration **needs review** by an officer". A low price can be legitimate (damage, high mileage, trim). Under the WTO Valuation Agreement, customs may not simply replace a declared price with a database value.
@@ -98,18 +100,24 @@ The stack is deliberately small: **Python + FastAPI** for the server, **SQLite**
 
 ```
 app/
-  vin.py          VIN validation and check digit
-  offline_vin.py  VIN decoding with the app's own vehicle database
-  vehicle_data/   that database (a copy of NHTSA's public data)
-  vpic.py         chooses own database or the NHTSA online service
-  mismatch.py     paper vs. decoded VIN comparison
-  compare.py      declared price vs. market value -> flag + explanation
-  pricing/        market value providers  (swappable)
-  readers/        document readers        (swappable)
-  db.py           database, password hashing
-  main.py         pages and API
-  templates/, static/   the screens
-tests/
+  main.py              pages and API, and the price lookup chain
+  vin.py               VIN validation, check digit, "did you mean?" fixes
+  offline_vin.py       VIN decoding with the app's own vehicle database
+  vpic.py              chooses own database or the NHTSA online service
+  mismatch.py          paper vs. VIN comparison (make, model, year, trim)
+  compare.py           declared price vs. expected value -> flag + explanation
+  reference_prices.py  the built-in price list
+  web_prices.py        automatic lookup of missing prices on public pages
+  research.py          optional price search with Claude (off by default)
+  pricing/             today's value from the price when new (swappable)
+  readers/             paperwork photo readers (swappable)
+  db.py                all SQL tables, SQLite or PostgreSQL
+  config.py            settings read from environment variables
+  vehicle_data/        vehicles.db.gz (vehicle database) and prices/ (price datasets)
+  templates/, static/  the screens; static/vendor holds the OCR and barcode libraries
+scripts/               build the vehicle database, build and import price datasets
+tests/                 304 tests, including 40 real VINs in tests/data
+docs/                  HANDOFF.md (status and next steps), RESEARCH.md
 ```
 
 ### Where the data is stored: your own SQL tables
@@ -205,7 +213,7 @@ The price is not inside a VIN; manufacturers publish it separately for each mode
 
 - **It fills itself.** When an inspector types a manufacturer's price during a check, it is saved against the car's *VIN pattern* (characters 1–8 and 10, which identify model, trim, engine and year). Every later car with the same pattern gets that price automatically.
 - **Administrators can add prices or import a list** as a CSV file with the columns `make, model, year, msrp` and optionally `trim, vin, source`.
-- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then the vehicle database, then the built-in reference price list, then online search if it is switched on.
+- **Lookup order:** a price typed in for this check, then the price book by VIN pattern, then the price book by make, model and year (preferring the same trim), then the vehicle database, then the built-in price list for the exact model year, then the automatic web lookup, then the built-in list's nearest model year.
 - **Every entry records who added it, when, and from what source,** and administrators can remove wrong ones. An entry typed in by mistake would affect later checks until it is removed.
 
 Each result also shows **earlier declarations at this port** for the same VIN pattern, once at least 3 other cars have been checked.

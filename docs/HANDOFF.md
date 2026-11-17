@@ -28,7 +28,7 @@ Open <http://localhost:8000>. The first start prints the admin username and pass
 - Address: <https://port-inspection-system-eight.vercel.app>, deployed automatically from the branch on every push.
 - Login: username `admin`. The password is the `ADMIN_PASSWORD` environment variable in the Vercel project (Settings → Environment Variables). It is not written in this repository. It was shared in a chat, so change it before anyone else uses the site.
 - Vercel variables already set: `ADMIN_PASSWORD`, `SECRET_KEY`, `PRICE_RESEARCH=claude` (inactive, because there is no `ANTHROPIC_API_KEY`).
-- `DEMO_DATA=1` is set, so the site fills itself with about 160 made-up checks whenever it starts empty. The dashboard is never blank for a visitor.
+- With no database connected, the site fills itself with about 160 made-up checks whenever it starts empty. The dashboard is never blank for a visitor.
 - **The site runs in demo mode.** Vercel has no permanent disk and no database is connected, so saved checks, photos, accounts, the price book and prices found online are erased regularly. The built-in vehicle database and built-in price list are part of the code and are not affected.
 
 ## What is built

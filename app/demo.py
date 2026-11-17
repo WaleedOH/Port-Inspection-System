@@ -7,9 +7,11 @@ and the decisions. Demo checks are saved under inspector names starting with
 
 Two ways in:
   - python scripts/seed_demo.py           by hand, on your own machine
-  - DEMO_DATA=1 in the environment        the app fills itself when it starts
-    with no checks. Meant for a public demo site whose storage is erased
-    regularly. It is ignored when a real database (DATABASE_URL) is connected.
+  - by itself                             the app fills itself when it starts
+    with no checks, if DEMO_DATA=1 is set or it runs on Vercel without a
+    database (a demo site whose storage is erased regularly anyway).
+    DEMO_DATA=0 switches that off. It never runs when a real database
+    (DATABASE_URL) is connected.
 """
 import json
 import os
@@ -111,9 +113,16 @@ def seed(count: int, days: int, rng: random.Random) -> int:
     return made
 
 
+def wanted() -> bool:
+    """On for DEMO_DATA=1, and by default on a Vercel site with no database."""
+    if config.database_url():
+        return False
+    return os.environ.get("DEMO_DATA", "1" if os.environ.get("VERCEL") else "0") == "1"
+
+
 def seed_if_asked() -> int:
     """Fill an empty demo site. Never touches a real database, never adds twice."""
-    if os.environ.get("DEMO_DATA") != "1" or config.database_url():
+    if not wanted():
         return 0
     with db.connect() as conn:
         if conn.execute("SELECT COUNT(*) AS n FROM checks").fetchone()["n"]:

@@ -134,6 +134,10 @@ def test_a_demo_site_fills_itself_once_and_never_touches_a_real_database(monkeyp
     with db.connect() as conn:
         before = conn.execute("SELECT COUNT(*) AS n FROM checks").fetchone()["n"]
     assert before and demo.seed_if_asked() == 0                 # not asked for
+    monkeypatch.setenv("VERCEL", "1")
+    assert demo.wanted()                                        # a Vercel site with no database is a demo
+    monkeypatch.setenv("DEMO_DATA", "0")
+    assert not demo.wanted()
     monkeypatch.setenv("DEMO_DATA", "1")
     assert demo.seed_if_asked() == 0                            # there are checks already
     monkeypatch.setattr(db, "connect", lambda: pytest.fail("a real database must not be read"))

@@ -72,7 +72,7 @@ python scripts/seed_demo.py --clear    # remove them again
 
 The cars are real VINs from the test data; the declared prices, sellers, buyers and inspectors are invented. Demo checks are saved under inspector names starting with `demo.`. The script refuses to run against a PostgreSQL database unless you add `--force`.
 
-For a public demo site whose storage is erased regularly, set `DEMO_DATA=1` instead: the app adds the same demo checks by itself whenever it starts empty. It is ignored when `DATABASE_URL` is set.
+For a public demo site whose storage is erased regularly, the app adds the same demo checks by itself whenever it starts empty. This is on by default on Vercel when no database is connected (`DEMO_DATA=0` switches it off), and elsewhere with `DEMO_DATA=1`. It never runs when `DATABASE_URL` is set.
 
 ### Run the tests
 

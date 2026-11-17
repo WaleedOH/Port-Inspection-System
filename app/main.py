@@ -122,7 +122,7 @@ def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
                    flag_labels=FLAG_LABELS, decisions=DECISIONS, physical_checks=PHYSICAL_CHECKS,
                    v=ASSET_VERSION, org_name=_org_name(),
-                   ephemeral=config.is_ephemeral(), demo_data=os.environ.get("DEMO_DATA") == "1", needs_setup=not _ready)
+                   ephemeral=config.is_ephemeral(), demo_data=demo.wanted(), needs_setup=not _ready)
     status = context.pop("status_code", 200)
     return templates.TemplateResponse(request, name, context, status_code=status)
 

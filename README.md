@@ -1,6 +1,6 @@
 # Import Value Checker
 
-> **Picking this project up?** Start with [docs/HANDOFF.md](docs/HANDOFF.md): what is built, what is proven, and what to do next.
+> **Picking this project up?** Start with [docs/HANDOFF.md](docs/HANDOFF.md): what is built, what is proven, and what to do next. Presenting it to a port? See [docs/PORT-PITCH.md](docs/PORT-PITCH.md).
 
 A prototype web app for customs and port inspectors. The inspector photographs a vehicle's import paperwork, and the app compares the declared price with a reference market value.
 
@@ -23,7 +23,11 @@ Built around that, without adding steps:
 - **Repeat sellers and buyers.** The result says when the same seller or buyer appeared in earlier checks and how many of those needed review.
 - **Typing help.** The VIN box counts characters, rejects I, O and Q, and looks up by itself at 17 characters.
 - **Your own depreciation schedule.** Today's value is the price when new reduced by an age table that an administrator sets in Settings, so it can follow the customs authority's official schedule.
-- **For supervisors.** The History page starts with totals: checks, awaiting a decision, price needs review, identity needs review.
+- **For supervisors.** The **Dashboard** shows checks per day, how they were flagged, what officers decided, the sellers and makes that keep needing review, and an estimate of the duty riding on flagged declarations. The History page starts with totals (checks, awaiting a decision, price needs review, identity needs review); tap one to see only those, and search by VIN, seller or buyer.
+- **Price bar.** The live verdict and the saved result show where the declared price sits against the expected value and the review thresholds.
+- **Audit log.** Administrators see who logged in, saved or opened a check, recorded a decision, changed a price or a setting, or exported data, and can export the log.
+- **The port's own name.** Set the organisation's name in Settings; it appears in the header and on the printed record, which has signature lines for the inspector and the reviewing officer.
+- **Phone and desk.** One-handed layout with a bottom bar on a phone; a sidebar and two columns on a laptop.
 - **On the phone's home screen.** The app can be added to the home screen and opens like an app.
 
 Everything else is optional, under **More details**:
@@ -58,6 +62,15 @@ Then open <http://localhost:8000>.
 The first time it starts, the app creates an administrator account and **prints the username and password in the terminal**. To choose your own instead, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` before the first start (see `.env.example`).
 
 To try it from your phone on the same Wi-Fi, start it with `uvicorn app.main:app --host 0.0.0.0` and open `http://<your computer's IP address>:8000`. Phones only open the camera directly on HTTPS sites, so on plain `http` you may get the photo picker instead. That is one reason to deploy it properly.
+
+### Try it with demonstration data
+
+```bash
+python scripts/seed_demo.py            # about 160 made-up checks over the last 60 days
+python scripts/seed_demo.py --clear    # remove them again
+```
+
+The cars are real VINs from the test data; the declared prices, sellers, buyers and inspectors are invented. Demo checks are saved under inspector names starting with `demo.`. The script refuses to run against a PostgreSQL database unless you add `--force`.
 
 ### Run the tests
 
@@ -101,6 +114,7 @@ The stack is deliberately small: **Python + FastAPI** for the server, **SQLite**
 ```
 app/
   main.py              pages and API, and the price lookup chain
+  dashboard.py         the supervisor's figures, worked out from the saved checks
   vin.py               VIN validation, check digit, "did you mean?" fixes
   offline_vin.py       VIN decoding with the app's own vehicle database
   vpic.py              chooses own database or the NHTSA online service
@@ -116,9 +130,9 @@ app/
   config.py            settings read from environment variables
   vehicle_data/        vehicles.db.gz (vehicle database) and prices/ (price datasets)
   templates/, static/  the screens; static/vendor holds the OCR and barcode libraries
-scripts/               build the vehicle database, build and import price datasets
-tests/                 307 tests, including 40 real VINs in tests/data
-docs/                  HANDOFF.md (status and next steps), RESEARCH.md
+scripts/               build the vehicle database, build and import price datasets, seed demo data
+tests/                 314 tests, including 40 real VINs in tests/data
+docs/                  HANDOFF.md (status and next steps), PORT-PITCH.md, RESEARCH.md
 ```
 
 ### Where the data is stored: your own SQL tables
@@ -131,7 +145,9 @@ Everything the app saves lives in SQL tables that the app creates itself on firs
 | `photos` | the document and VIN photos |
 | `price_book` | manufacturer prices, with source and who added them |
 | `users` | inspector accounts (passwords stored as hashes) |
-| `settings` | thresholds and exchange rates |
+| `settings` | thresholds, exchange rates, depreciation schedule, organisation name, duty rate |
+| `audit_log` | who did what, and when |
+| `web_prices` | prices found on public pages, with each trim's price |
 | `vin_cache` | vehicle details fetched online, kept for next time |
 
 The same tables and the same SQL run on two database engines:
@@ -262,7 +278,9 @@ To add another reader, write a class with `read()` and add it to `READERS` in `a
 - **Web protections.** Database queries use placeholders, pages escape all text, cross-site form posts are blocked, and CSV cells that look like formulas are neutralised.
 - **Personal data.** Invoices contain seller and buyer names. Keep the `data/` folder on an encrypted disk, back it up, and agree a retention period with your organisation.
 
-Not yet included, and needed before real use: HTTPS (your hosting provides it), an audit log of who viewed what, password reset, and automatic deletion of old records.
+- **Audit log.** Logins (including failed ones), checks saved and opened, decisions, price and settings changes, account changes and exports are recorded with the user and the time. Only administrators can read it.
+
+Not yet included, and needed before real use: HTTPS (your hosting provides it), password reset, and automatic deletion of old records.
 
 ## Deploy it
 

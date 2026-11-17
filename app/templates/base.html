@@ -2,33 +2,53 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Import Value Checker{% endblock %}</title>
+  <meta name="description" content="Customs vehicle valuation check: scan a VIN, see the expected value, flag declarations that need review.">
   <link rel="stylesheet" href="/static/style.css?v={{ v }}">
   <link rel="manifest" href="/static/manifest.webmanifest?v={{ v }}">
   <link rel="icon" href="/static/icon-192.png">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
-  <meta name="theme-color" content="#14508c">
+  <meta name="theme-color" content="#0e4166">
 </head>
-<body>
+<body class="{{ 'app' if user }}">
+  <svg width="0" height="0" class="sr" aria-hidden="true" focusable="false">
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M8 9v6M12 9v6M16 9v6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24"><path d="M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  </svg>
+  <a class="skip" href="#content">Skip to content</a>
   <header class="topbar">
-    <a class="brand" href="/">Import Value Checker</a>
+    <a class="brand" href="/">
+      <span class="mark"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg></span>
+      <span>Import Value Checker{% if org_name %}<small>{{ org_name }}</small>{% endif %}</span>
+    </a>
     {% if user %}
-    <form method="post" action="/logout"><button class="link" type="submit">Log out ({{ user }})</button></form>
+    <form method="post" action="/logout"><button class="who" type="submit" title="Log out">{{ user }} · Log out</button></form>
     {% endif %}
   </header>
   {% if user %}
-  <nav class="tabs">
-    <a href="/" class="{{ 'on' if active == 'new' }}">Check</a>
-    <a href="/history" class="{{ 'on' if active == 'history' }}">History</a>
-    <a href="/prices" class="{{ 'on' if active == 'prices' }}">Prices</a>
-    <a href="/settings" class="{{ 'on' if active == 'settings' }}">Settings</a>
+  <nav class="nav" aria-label="Main">
+    <a href="/" class="{{ 'on' if active == 'new' }}" {{ 'aria-current=page' if active == 'new' }}><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>Check</a>
+    <a href="/dashboard" class="{{ 'on' if active == 'dashboard' }}" {{ 'aria-current=page' if active == 'dashboard' }}><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Dashboard</a>
+    <a href="/history" class="{{ 'on' if active == 'history' }}" {{ 'aria-current=page' if active == 'history' }}><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg>History</a>
+    <a href="/prices" class="{{ 'on' if active == 'prices' }}" {{ 'aria-current=page' if active == 'prices' }}><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg>Prices</a>
+    <a href="/settings" class="{{ 'on' if active == 'settings' }}" {{ 'aria-current=page' if active == 'settings' }}><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>Settings</a>
+    {% if is_admin %}
+    <span class="rule desk" aria-hidden="true"></span>
+    <a href="/audit" class="desk {{ 'on' if active == 'audit' }}" {{ 'aria-current=page' if active == 'audit' }}><svg class="icon" aria-hidden="true"><use href="#i-log"/></svg>Audit log</a>
+    {% endif %}
   </nav>
   {% endif %}
-  <main>
+  <main id="content" class="{{ 'plain' if not user }} {% block mainclass %}{% endblock %}">
     {% if ephemeral %}<p class="note warn" role="status"><strong>Demo mode.</strong> This host has no permanent storage, so saved checks, photos and accounts are erased regularly. Do not use it for real work.</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script src="/static/site.js?v={{ v }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

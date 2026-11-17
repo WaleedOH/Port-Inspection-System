@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set active = 'audit' %}
+{% block title %}Audit log · Import Value Checker{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <p class="muted"><a href="/settings">Settings</a> › Audit log</p>
+    <h1>Audit log</h1>
+    <p class="lead">Who did what, and when: logins, checks saved and opened, decisions, price changes, settings and exports. Times are UTC. Entries cannot be edited or removed from the app.</p>
+  </div>
+</div>
+<form method="get" action="/audit" class="card">
+  <label>Search by user, action or detail <input name="q" value="{{ q }}" maxlength="40" placeholder="e.g. a username, a VIN, decision"></label>
+  <div class="btnrow">
+    <button class="btn primary" type="submit">Search</button>
+    <a class="btn" href="/audit.csv?q={{ q | urlencode }}">Export to CSV</a>
+  </div>
+  {% if q %}<p class="muted">Showing entries matching "{{ q }}". <a href="/audit">Show all</a></p>{% endif %}
+</form>
+{% if not rows %}
+<div class="empty"><strong>No entries found</strong>{% if q %}Nothing matches "{{ q }}".{% else %}Actions will be listed here as people use the app.{% endif %}</div>
+{% else %}
+<div class="card">
+  <div class="tablewrap"><table>
+    <thead><tr><th>When (UTC)</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+    <tbody>{% for r in rows %}<tr><td class="mono">{{ r.at }}</td><td>{{ r.username }}</td><td><strong>{{ r.action }}</strong></td><td>{{ r.detail or '' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="muted">Showing the latest {{ rows | length }} entr{{ 'y' if rows | length == 1 else 'ies' }}. The CSV export has all of them.</p>
+</div>
+{% endif %}
+{% endblock %}

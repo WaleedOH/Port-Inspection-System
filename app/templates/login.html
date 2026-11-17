@@ -1,11 +1,20 @@
 {% extends "base.html" %}
+{% block title %}Log in · Import Value Checker{% endblock %}
 {% block content %}
-<h1>Log in</h1>
-{% if needs_setup %}<p class="note bad" role="alert">Setup needed: add an <strong>ADMIN_PASSWORD</strong> environment variable (and a <strong>SECRET_KEY</strong>) in your hosting settings, then redeploy. See the README.</p>{% endif %}
-{% if error %}<p class="note bad" role="alert">{{ error }}</p>{% endif %}
-<form method="post" action="/login" class="card">
-  <label>Username <input name="username" autocomplete="username" autocapitalize="none" required></label>
-  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-  <button class="btn primary" type="submit">Log in</button>
-</form>
+<div class="auth">
+  <h1>Log in</h1>
+  <p class="lead">Vehicle valuation checks for customs and port inspectors.</p>
+  {% if needs_setup %}<p class="note bad" role="alert">Setup needed: add an <strong>ADMIN_PASSWORD</strong> environment variable (and a <strong>SECRET_KEY</strong>) in your hosting settings, then redeploy. See the README.</p>{% endif %}
+  {% if error %}<p class="note bad" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/login" class="card" data-busy>
+    <label>Username <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+  <ul class="pitch">
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Scan a VIN and see how the factory built the car and what it should be worth.</li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Every check, decision and export is recorded under your own account.</li>
+    <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>A flag means "needs review by an officer". It is never proof of fraud.</li>
+  </ul>
+</div>
 {% endblock %}

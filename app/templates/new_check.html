@@ -1,127 +1,154 @@
 {% extends "base.html" %}
 {% set active = 'new' %}
 {% block content %}
-<h1>Check a vehicle</h1>
+<div class="pagehead">
+  <div>
+    <h1>Check a vehicle</h1>
+    <p class="lead">Scan or type the VIN. The vehicle and its expected price appear by themselves.</p>
+  </div>
+</div>
 <p class="note bad" id="error" role="alert" hidden></p>
 
 <div class="card">
-  <label>VIN
-    <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono" placeholder="Scan or type the 17 characters">
-  </label>
+  <label for="vin">VIN</label>
+  <input id="vin" maxlength="20" autocapitalize="characters" autocomplete="off" spellcheck="false" class="mono vinbox" placeholder="Scan or type the 17 characters" aria-describedby="vinCount">
   <p class="muted" id="vinCount" aria-live="polite"></p>
-  <div class="row">
-    <button class="btn" type="button" id="scanBtn">Scan barcode</button>
+  <div class="btnrow">
+    <button class="btn" type="button" id="scanBtn"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>Scan VIN</button>
     <button class="btn primary" type="button" id="lookupBtn">Look up</button>
   </div>
 </div>
 
+<div id="loading" hidden aria-hidden="true"><div class="skeleton"></div><div class="skeleton"></div></div>
+
 <div id="result" hidden>
   <div id="vinNotes" aria-live="polite"></div>
+  <div class="cols">
+    <div>
+      <div class="card" id="vehicleCard" hidden>
+        <p class="muted">The VIN says this car was built as</p>
+        <h2 id="vehicleTitle"></h2>
+        <p id="vehicleSummary"></p>
+        <p class="source" id="vehicleSource"></p>
+      </div>
 
-  <div class="card" id="vehicleCard" hidden>
-    <h2 id="vehicleTitle"></h2>
-    <p id="vehicleSummary"></p>
-    <p class="muted" id="vehicleSource"></p>
+      <div class="card" id="priceCard" hidden>
+        <h2>Expected price</h2>
+        <div id="priceFound" hidden>
+          <p class="bigprice"><span id="priceToday"></span></p>
+          <dl>
+            <dt>Typical range today</dt><dd id="priceRange"></dd>
+            <dt id="priceNewLabel">Price when new</dt><dd id="priceNew"></dd>
+          </dl>
+          <p class="source" id="priceSource"></p>
+        </div>
+        <div id="priceMissing" hidden>
+          <p class="note warn" id="priceMissingNote"></p>
+          <label>Manufacturer's price when new, in {{ settings.base_currency }}
+            <input id="newPrice" inputmode="decimal">
+          </label>
+          <button class="btn" type="button" id="usePriceBtn">Use this price</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Compare with the declared price</h2>
+        <div class="row">
+          <label>Declared price <input id="price" inputmode="decimal" placeholder="From the paperwork"></label>
+          <label>Currency
+            <select id="currency">
+              {% for code in settings.exchange_rates %}<option {{ 'selected' if code == settings.base_currency }}>{{ code }}</option>{% endfor %}
+            </select>
+          </label>
+        </div>
+        <label id="rateRow" hidden>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
+          <input id="rate" inputmode="decimal">
+        </label>
+        <div class="flag" id="verdict" aria-live="polite" hidden></div>
+        <div id="gaugeBox" hidden>
+          <div class="gauge" id="gauge"></div>
+          <ul class="legend">
+            <li><span class="key marker"></span>Declared price</li>
+            <li><span class="key expected"></span>Expected value</li>
+            <li><span class="key red"></span>Priority review</li>
+            <li><span class="key yellow"></span>Review</li>
+            <li><span class="key green"></span>Expected range</li>
+          </ul>
+        </div>
+        <button class="btn primary" type="button" id="saveBtn">Save this check</button>
+        <p class="muted">Saving records the check under your name and opens the result, which you can print.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" id="inspectCard" hidden>
+        <h2>Inspect the vehicle <span class="muted">(optional)</span></h2>
+        <p class="muted" id="checkHint">Compare each line with the actual vehicle and tap what you see. Badges and trim parts can be swapped; these come from the VIN and cannot.</p>
+        <ul class="checklist" id="specList"></ul>
+        <div id="versionsBox" hidden>
+          <h3>Versions of this model that year</h3>
+          <ul class="versions" id="versionList"></ul>
+          <p class="muted" id="versionNote"></p>
+        </div>
+      </div>
+
+      <details class="card">
+        <summary>More details (optional)</summary>
+        <label class="filepick">Photo of the invoice or customs document
+          <input type="file" id="docPhoto" accept="image/*" capture="environment">
+        </label>
+        <img id="docPreview" class="preview" alt="Document photo preview" hidden>
+        <button class="btn" type="button" id="readBtn" hidden>Read the details from this photo</button>
+        <p class="note" id="progress" hidden></p>
+        <label class="filepick">Photo of the VIN plate
+          <input type="file" id="vinPhoto" accept="image/*" capture="environment">
+        </label>
+        <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
+        <h3>What the paperwork says</h3>
+        <div class="row">
+          <label>Make <input id="make" autocomplete="off"></label>
+          <label>Model <input id="model" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label>Trim <input id="trim" autocomplete="off"></label>
+          <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
+        </div>
+        <div class="row">
+          <label>Mileage <input id="mileage" inputmode="numeric"></label>
+          <label>Delivery term <input id="incoterm" maxlength="10" autocapitalize="characters" placeholder="FOB, CIF"></label>
+        </div>
+        <label>Seller <input id="seller" autocomplete="off"></label>
+        <label>Buyer <input id="buyer" autocomplete="off"></label>
+        <label>Use a different reference value ({{ settings.base_currency }}) <input id="market" inputmode="decimal"></label>
+        <label>Where does that value come from? <input id="source"></label>
+        <label>Notes <textarea id="notes" rows="3"></textarea></label>
+        <button class="btn" type="button" id="relookBtn">Look up again with these details</button>
+      </details>
+    </div>
   </div>
-
-  <div class="card" id="priceCard" hidden>
-    <h2>Expected price</h2>
-    <div id="priceFound" hidden>
-      <p class="bigprice"><span id="priceToday"></span></p>
-      <p>Typical range today: <strong id="priceRange"></strong></p>
-      <p id="priceNewLine">Manufacturer's price when new: <strong id="priceNew"></strong></p>
-      <p class="muted" id="priceSource"></p>
-    </div>
-    <div id="priceMissing" hidden>
-      <p class="note warn" id="priceMissingNote"></p>
-      <label>Manufacturer's price when new, in {{ settings.base_currency }}
-        <input id="newPrice" inputmode="decimal">
-      </label>
-      <button class="btn" type="button" id="usePriceBtn">Use this price</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Compare with the declared price <span class="muted">(optional)</span></h2>
-    <div class="row">
-      <label>Declared price <input id="price" inputmode="decimal"></label>
-      <label>Currency
-        <select id="currency">
-          {% for code in settings.exchange_rates %}<option {{ 'selected' if code == settings.base_currency }}>{{ code }}</option>{% endfor %}
-        </select>
-      </label>
-    </div>
-    <label id="rateRow" hidden>Exchange rate: 1 <span id="rateFrom"></span> = how many {{ settings.base_currency }}?
-      <input id="rate" inputmode="decimal">
-    </label>
-    <div class="flag" id="verdict" aria-live="polite" hidden></div>
-    <button class="btn primary" type="button" id="saveBtn">Save this check</button>
-  </div>
-
-  <div class="card" id="inspectCard" hidden>
-    <h2>Inspect the vehicle <span class="muted">(optional)</span></h2>
-    <p class="muted" id="checkHint">Compare each line with the actual vehicle and tap what you see. Badges and trim parts can be swapped; these come from the VIN and cannot.</p>
-    <ul class="checklist" id="specList"></ul>
-    <div id="versionsBox" hidden>
-      <h2>Versions of this model that year</h2>
-      <ul class="versions" id="versionList"></ul>
-      <p class="muted" id="versionNote"></p>
-    </div>
-  </div>
-
-  <details class="card">
-    <summary>More details (optional)</summary>
-    <label class="filepick">Photo of the invoice or customs document
-      <input type="file" id="docPhoto" accept="image/*" capture="environment">
-    </label>
-    <img id="docPreview" class="preview" alt="Document photo preview" hidden>
-    <button class="btn" type="button" id="readBtn" hidden>Read the details from this photo</button>
-    <p class="note" id="progress" hidden></p>
-    <label class="filepick">Photo of the VIN plate
-      <input type="file" id="vinPhoto" accept="image/*" capture="environment">
-    </label>
-    <img id="vinPreview" class="preview" alt="VIN plate photo preview" hidden>
-    <h2>What the paperwork says</h2>
-    <div class="row">
-      <label>Make <input id="make" autocomplete="off"></label>
-      <label>Model <input id="model" autocomplete="off"></label>
-    </div>
-    <div class="row">
-      <label>Trim <input id="trim" autocomplete="off"></label>
-      <label>Year <input id="year" inputmode="numeric" maxlength="4"></label>
-    </div>
-    <div class="row">
-      <label>Mileage <input id="mileage" inputmode="numeric"></label>
-      <label>Delivery term <input id="incoterm" maxlength="10" autocapitalize="characters" placeholder="FOB, CIF"></label>
-    </div>
-    <label>Seller <input id="seller" autocomplete="off"></label>
-    <label>Buyer <input id="buyer" autocomplete="off"></label>
-    <label>Use a different reference value ({{ settings.base_currency }}) <input id="market" inputmode="decimal"></label>
-    <label>Where does that value come from? <input id="source"></label>
-    <label>Notes <textarea id="notes" rows="3"></textarea></label>
-    <button class="btn" type="button" id="relookBtn">Look up again with these details</button>
-  </details>
 </div>
 
-{% if recent %}
 <div id="recent">
   <h2>Recent checks</h2>
+  {% if recent %}
   <ul class="list">
     {% for c in recent %}
     <li><a href="/checks/{{ c.id }}">
-      <span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>
-      <span class="grow"><span class="mono">{{ c.vin }}</span><br>
-        <span class="muted">{{ c.created_at[:16] }} · {{ c.decoded_year or c.doc_year or '' }} {{ c.decoded_make or c.doc_make or '' }} {{ c.decoded_model or c.doc_model or '' }}</span><br>
-        <span>{{ c.flag_label }}{% if c.identity_review %} · identity needs review{% endif %}</span></span>
+      <span class="grow"><span class="rowline"><strong>{{ c.decoded_year or c.doc_year or '' }} {{ c.decoded_make or c.doc_make or '' }} {{ c.decoded_model or c.doc_model or 'Vehicle' }}</strong>
+        <span class="badge {{ c.flag | lower }}"><span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>{{ c.flag_label }}</span>{% if c.identity_review %}<span class="badge id">Identity needs review</span>{% endif %}</span>
+        <span class="mono muted">{{ c.vin }}</span><br>
+        <span class="muted">{{ c.created_at[:16] }} · {{ c.created_by }}</span></span>
     </a></li>
     {% endfor %}
   </ul>
+  {% else %}
+  <div class="empty"><strong>No checks yet</strong>Your first saved check will appear here. Scan a VIN sticker to start.</div>
+  {% endif %}
 </div>
-{% endif %}
 
 <div id="scanner" class="scanner" role="dialog" aria-label="Scan VIN barcode" hidden>
   <video id="scanVideo" playsinline muted></video>
-  <p id="scanStatus">Point the camera at the VIN barcode</p>
+  <p id="scanStatus">Point the camera at the VIN barcode on the door frame or windscreen</p>
   <button class="btn" id="scanCancel" type="button">Cancel</button>
 </div>
 <script type="application/json" id="config">{{ client_config | safe }}</script>

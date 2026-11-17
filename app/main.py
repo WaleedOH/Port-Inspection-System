@@ -20,9 +20,10 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse, Res
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, db, reference_prices, research, vpic, web_prices
+from . import config, dashboard, db, reference_prices, research, vpic, web_prices
 from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
@@ -119,9 +120,31 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
                    flag_labels=FLAG_LABELS, decisions=DECISIONS, physical_checks=PHYSICAL_CHECKS,
-                   v=ASSET_VERSION,
+                   v=ASSET_VERSION, org_name=_org_name(),
                    ephemeral=config.is_ephemeral(), needs_setup=not _ready)
-    return templates.TemplateResponse(request, name, context)
+    status = context.pop("status_code", 200)
+    return templates.TemplateResponse(request, name, context, status_code=status)
+
+
+def _org_name() -> str:
+    try:
+        return str(db.get_settings().get("org_name") or "")
+    except Exception:       # the database is not set up yet: the login page still has to open
+        return ""
+
+
+def _who(request: Request) -> str:
+    return request.session.get("user") or ""
+
+
+@app.exception_handler(StarletteHTTPException)
+async def friendly_error(request: Request, exc: StarletteHTTPException):
+    """Pages get a readable error screen with a way back; the API keeps JSON."""
+    if request.url.path.startswith("/api/") or "text/html" not in request.headers.get("accept", ""):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    title = {403: "Not allowed", 404: "Page not found"}.get(exc.status_code, "Something went wrong")
+    return page(request, "error.html", status_code=exc.status_code, title=title, code=exc.status_code,
+                detail=exc.detail if isinstance(exc.detail, str) else "")
 
 
 def require_admin(request: Request) -> None:
@@ -165,14 +188,18 @@ def login(request: Request, username: str = Form(""), password: str = Form("")):
     user = db.get_user(username)
     if not user or not db.verify_password(password, user["password_hash"]):
         _failed_logins.setdefault(key, []).append(time.time())
+        db.audit(username[:30], "Login failed")
         return page(request, "login.html", error="Wrong username or password.")
     request.session.clear()
     request.session.update(user=user["username"], is_admin=bool(user["is_admin"]))
+    db.audit(user["username"], "Logged in")
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/logout")
 def logout(request: Request):
+    if _who(request):
+        db.audit(_who(request), "Logged out")
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -506,6 +533,7 @@ async def create_check(
                  model.strip() or decoded.get("model") or "", trim.strip() or decoded.get("trim") or "",
                  int(year_n or decoded.get("year") or 0), _number(new_price, "Manufacturer's price"),
                  request.session["user"], f"Typed in during check #{check_id}")
+    db.audit(_who(request), "Saved a check", f"#{check_id} · VIN {validation['vin']} · {result.label}")
     return {"id": check_id, "url": f"/checks/{check_id}"}
 
 
@@ -526,16 +554,33 @@ def _peer_summary(check) -> dict | None:
             "diff_pct": round((check["declared_base"] - typical) / typical * 100, 1) if typical else None}
 
 
+def _gauge(check) -> dict | None:
+    """Where the declared price sits against the expected value, for the bar
+    on the result page. Positions are in % of the bar's width; the bar runs
+    from 0 to 150% of the expected value."""
+    if not check["market_value"] or check["declared_base"] is None:
+        return None
+    green = check["green_threshold"] if check["green_threshold"] is not None else 15.0
+    yellow = check["yellow_threshold"] if check["yellow_threshold"] is not None else 30.0
+    scale = 1.5
+    share = check["declared_base"] / check["market_value"]
+    return {"red_end": round((100 - yellow) / scale, 2), "yellow_end": round((100 - green) / scale, 2),
+            "expected": round(100 / scale, 2), "marker": round(min(max(share, 0), scale) / scale * 100, 2),
+            "off_scale": share > scale}
+
+
 @app.get("/checks/{check_id}")
-def check_detail(request: Request, check_id: int):
+def check_detail(request: Request, check_id: int, saved: int = 0):
     check = db.get_check(check_id)
     if not check:
         raise HTTPException(404, "Check not found.")
+    db.audit(_who(request), "Viewed a check", f"#{check_id} · VIN {check['vin']}")
     return page(request, "check.html", c=check, specs=json.loads(check["decoded_specs"] or "{}"),
+                gauge=_gauge(check),
                 peers=_peer_summary(check), ticks=json.loads(check["physical_details"] or "{}"),
                 parties=[(label, check[col], db.party_history(col, check[col], check_id))
                          for label, col in (("Seller", "seller"), ("Buyer", "buyer"))],
-                previous=db.previous_checks_for_vin(check["vin"], exclude_id=check_id))
+                previous=db.previous_checks_for_vin(check["vin"], exclude_id=check_id), saved=bool(saved))
 
 
 @app.post("/checks/{check_id}/decision")
@@ -543,7 +588,8 @@ def save_decision(request: Request, check_id: int, decision: str = Form(...), no
     if decision not in DECISIONS or not db.get_check(check_id):
         raise HTTPException(422, "Unknown decision.")
     db.set_decision(check_id, decision, notes.strip()[:2000], request.session["user"])
-    return RedirectResponse(f"/checks/{check_id}", status_code=303)
+    db.audit(_who(request), "Recorded a decision", f"#{check_id} · {DECISIONS[decision]}")
+    return RedirectResponse(f"/checks/{check_id}?saved=1", status_code=303)
 
 
 @app.get("/photos/{filename}")
@@ -558,11 +604,13 @@ def photo(filename: str):
 
 
 @app.get("/history")
-def history(request: Request, q: str = "", flag: str = "", awaiting: int = 0):
-    q = q.strip()[:17]
+def history(request: Request, q: str = "", flag: str = "", awaiting: int = 0, review: str = ""):
+    q = q.strip()[:40]
     flag = flag if flag in FLAG_LABELS else ""
-    return page(request, "history.html", checks=db.list_checks(q, flag, awaiting=bool(awaiting)), q=q,
-                flag=flag, awaiting=bool(awaiting), summary=db.summary())
+    review = review if review in ("price", "identity") else ""
+    return page(request, "history.html",
+                checks=db.list_checks(q, flag, awaiting=bool(awaiting), review=review), q=q,
+                flag=flag, awaiting=bool(awaiting), review=review, summary=db.summary())
 
 
 CSV_COLUMNS = ["id", "created_at", "created_by", "vin", "vin_check_digit_ok", "doc_make", "doc_model",
@@ -581,12 +629,15 @@ def csv_safe(value):
 
 
 @app.get("/history.csv")
-def history_csv(q: str = "", flag: str = ""):
+def history_csv(request: Request, q: str = "", flag: str = "", awaiting: int = 0, review: str = ""):
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(CSV_COLUMNS)
-    for row in db.list_checks(q.strip()[:17], flag if flag in FLAG_LABELS else "", limit=None):
+    rows = db.list_checks(q.strip()[:40], flag if flag in FLAG_LABELS else "", limit=None,
+                          awaiting=bool(awaiting), review=review if review in ("price", "identity") else "")
+    for row in rows:
         writer.writerow([csv_safe(row[col]) for col in CSV_COLUMNS])
+    db.audit(_who(request), "Exported checks to CSV", f"{len(rows)} rows")
     return StreamingResponse(iter([out.getvalue()]), media_type="text/csv", headers={
         "Content-Disposition": f'attachment; filename="import-checks-{time.strftime("%Y%m%d")}.csv"'})
 
@@ -637,6 +688,7 @@ def add_price(request: Request, make: str = Form(""), model: str = Form(""), tri
     except ValueError as exc:
         return _prices_page(request, error=f"Not saved: {exc}.")
     db.add_price(**entry, added_by=request.session["user"])
+    db.audit(_who(request), "Added a price", f"{year} {make} {model} {trim}".strip())
     return _prices_page(request, message="Price added.")
 
 
@@ -668,6 +720,7 @@ async def import_prices(request: Request, file: UploadFile = File(...)):
         entry["source"] = entry["source"] or f"Imported from {(file.filename or 'CSV')[:60]}"
         db.add_price(**entry, added_by=request.session["user"])
         added += 1
+    db.audit(_who(request), "Imported a price list", f"{added} prices from {(file.filename or 'CSV')[:60]}")
     note = f"{added} price(s) imported."
     if problems:
         note += f" {len(problems)} line(s) skipped: " + "; ".join(problems[:5])
@@ -678,6 +731,7 @@ async def import_prices(request: Request, file: UploadFile = File(...)):
 def confirm_price(request: Request, price_id: int):
     require_admin(request)
     db.confirm_price(price_id)
+    db.audit(_who(request), "Confirmed a price", f"price book entry #{price_id}")
     return _prices_page(request, message="Price confirmed.")
 
 
@@ -685,6 +739,7 @@ def confirm_price(request: Request, price_id: int):
 def remove_price(request: Request, price_id: int):
     require_admin(request)
     db.delete_price(price_id)
+    db.audit(_who(request), "Removed a price", f"price book entry #{price_id}")
     return _prices_page(request, message="Price removed.")
 
 
@@ -712,11 +767,18 @@ def settings_page(request: Request, saved: int = 0):
 @app.post("/settings")
 def save_settings(request: Request, green_threshold: float = Form(...), yellow_threshold: float = Form(...),
                   base_currency: str = Form("USD"), exchange_rates: str = Form(""),
-                  depreciation: str = Form(""), adjust_for_mileage: str = Form("")):
+                  depreciation: str = Form(""), adjust_for_mileage: str = Form(""),
+                  org_name: str = Form(""), duty_rate: str = Form("")):
     require_admin(request)
     base = base_currency.strip().upper()
     try:
         validate_thresholds(green_threshold, yellow_threshold)
+        try:
+            duty = float(duty_rate) if duty_rate.strip() else db.get_settings()["duty_rate"]
+        except ValueError:
+            raise ValueError("The duty rate must be a number, such as 5.")
+        if not 0 <= duty <= 300:
+            raise ValueError("The duty rate must be between 0 and 300%.")
         if not re.fullmatch(r"[A-Z]{3}", base):
             raise ValueError("Base currency must be a 3-letter code such as USD.")
         rates = {}
@@ -744,7 +806,10 @@ def save_settings(request: Request, green_threshold: float = Form(...), yellow_t
             schedule = [entries[age] for age in range(len(entries))]
     except ValueError as exc:
         return _settings_page(request, error=str(exc))
+    db.audit(_who(request), "Changed settings",
+             f"green {green_threshold:g}%, yellow {yellow_threshold:g}%, duty {duty:g}%, base {base}")
     db.save_settings({"green_threshold": green_threshold, "yellow_threshold": yellow_threshold,
+                      "org_name": org_name.strip()[:80], "duty_rate": duty,
                       "base_currency": base, "exchange_rates": rates, "depreciation": schedule,
                       "adjust_for_mileage": adjust_for_mileage == "1" or not depreciation.strip()})
     return RedirectResponse("/settings?saved=1", status_code=303)
@@ -762,6 +827,7 @@ def add_user(request: Request, username: str = Form(...), password: str = Form(.
     if db.get_user(username):
         return _settings_page(request, error="That username already exists.")
     db.create_user(username, password, is_admin == "1")
+    db.audit(_who(request), "Added an account", username + (" (administrator)" if is_admin == "1" else ""))
     return RedirectResponse("/settings?saved=1", status_code=303)
 
 
@@ -772,4 +838,36 @@ def remove_user(request: Request, user_id: int):
     if target and target["username"] == request.session["user"]:
         return _settings_page(request, error="You cannot delete your own account.")
     db.delete_user(user_id)
+    if target:
+        db.audit(_who(request), "Removed an account", target["username"])
     return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+# ---------------- dashboard and audit log ----------------
+@app.get("/dashboard")
+def dashboard_page(request: Request, days: int = 30):
+    days = days if days in dashboard.PERIODS else 30
+    settings = db.get_settings()
+    stats = dashboard.build(db.checks_since(dashboard.since(days)), days, float(settings["duty_rate"]))
+    return page(request, "dashboard.html", s=stats, periods=dashboard.PERIODS, base=settings["base_currency"],
+                flag_names=dashboard.FLAG_NAMES)
+
+
+@app.get("/audit")
+def audit_page(request: Request, q: str = ""):
+    require_admin(request)
+    q = q.strip()[:40]
+    return page(request, "audit.html", rows=db.list_audit(q), q=q)
+
+
+@app.get("/audit.csv")
+def audit_csv(request: Request, q: str = ""):
+    require_admin(request)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["at_utc", "username", "action", "detail"])
+    for row in db.list_audit(q.strip()[:40], limit=None):
+        writer.writerow([csv_safe(row[col]) for col in ("at", "username", "action", "detail")])
+    db.audit(_who(request), "Exported the audit log")
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="audit-log-{time.strftime("%Y%m%d")}.csv"'})

@@ -2,112 +2,147 @@
 {% set active = 'history' %}
 {% block title %}Check #{{ c.id }} · Import Value Checker{% endblock %}
 {% block content %}
-<h1>Check #{{ c.id }}</h1>
-<p class="muted">{{ c.created_at }} UTC · by {{ c.created_by }}</p>
-
-<div class="flag {{ c.flag | lower }}">
-  <strong>{{ c.flag_label }}</strong>
-  {% if c.diff_pct is not none %}
-  <span class="big">{{ '%+.1f' | format(c.diff_pct) }}%</span>
-  <span>declared vs. market value</span>
-  {% endif %}
+<div class="printonly printhead">
+  <strong>Vehicle valuation review record</strong>
+  {{ org_name or 'Import Value Checker' }} · Check #{{ c.id }} · {{ c.created_at }} UTC
 </div>
-{% if c.identity_review %}
-<div class="flag yellow"><strong>Needs review: vehicle identity</strong>
-  <span>The paperwork, the VIN or the vehicle do not agree. See "Vehicle" below.</span></div>
-{% endif %}
-{% if c.flag in ('YELLOW', 'RED') %}
-<p class="note">This flag is a risk indicator, <strong>not proof of fraud</strong>. It means the declaration needs review by an officer.</p>
-{% endif %}
+<div class="pagehead">
+  <div>
+    <p class="muted noprint"><a href="/history">History</a> › Check #{{ c.id }}</p>
+    <h1>{{ c.decoded_year or c.doc_year or '' }} {{ c.decoded_make or c.doc_make or '' }} {{ c.decoded_model or c.doc_model or 'Check #' ~ c.id }}</h1>
+    <p class="lead">Check #{{ c.id }} · {{ c.created_at }} UTC · by {{ c.created_by }}</p>
+  </div>
+  <div class="toolbar noprint">
+    <button class="btn small quiet" type="button" id="printBtn">Print or save as PDF</button>
+    <a class="btn small primary" href="/">New check</a>
+  </div>
+</div>
+{% if saved %}<p class="note good noprint" role="status">Decision saved.</p>{% endif %}
 
-<div class="card">
-  <dl>
-    <dt>Declared price</dt><dd>{{ '{:,.2f}'.format(c.declared_price) }} {{ c.currency }}
-      {% if c.currency != c.base_currency %}<br><span class="muted">= {{ '{:,.2f}'.format(c.declared_base) }} {{ c.base_currency }} at rate {{ '%g' | format(c.exchange_rate) }}</span>{% endif %}</dd>
-    <dt>Market value</dt><dd>{% if c.market_value %}{{ '{:,.2f}'.format(c.market_value) }} {{ c.base_currency }}
-      {% if c.market_low %}<br><span class="muted">typical range {{ '{:,.0f}'.format(c.market_low) }} to {{ '{:,.0f}'.format(c.market_high) }}</span>{% endif %}
-      <br><span class="muted">{{ c.market_source }}</span>{% else %}Not available{% endif %}</dd>
-    <dt>Difference</dt><dd>{% if c.diff_pct is not none %}{{ '%+.1f' | format(c.diff_pct) }}%{% else %}n/a{% endif %}</dd>
-  </dl>
+<div class="cols">
+  <div>
+    <div class="flag {{ c.flag | lower }}">
+      <strong>{{ c.flag_label }}</strong>
+      {% if c.diff_pct is not none %}
+      <span class="big">{{ '%+.1f' | format(c.diff_pct) }}%</span>
+      <span>declared vs. market value</span>
+      {% endif %}
+    </div>
+    {% if c.identity_review %}
+    <div class="flag yellow"><strong>Needs review: vehicle identity</strong>
+      <span>The paperwork, the VIN or the vehicle do not agree. See "Vehicle" below.</span></div>
+    {% endif %}
+    {% if c.flag in ('YELLOW', 'RED') %}
+    <p class="note">This flag is a risk indicator, <strong>not proof of fraud</strong>. It means the declaration needs review by an officer.</p>
+    {% endif %}
+
+    <div class="card">
+      <h2>Declared against expected</h2>
+      {% if gauge %}
+      <div class="gauge gauge-draw" data-red="{{ gauge.red_end }}" data-yellow="{{ gauge.yellow_end }}" data-expected="{{ gauge.expected }}" data-marker="{{ gauge.marker }}"
+           role="img" aria-label="Declared price is {{ '%+.1f' | format(c.diff_pct) }} percent against the expected value"></div>
+      <ul class="legend">
+        <li><span class="key marker"></span>Declared price{% if gauge.off_scale %} (beyond the end of the bar){% endif %}</li>
+        <li><span class="key expected"></span>Expected value</li>
+        <li><span class="key red"></span>Priority review</li>
+        <li><span class="key yellow"></span>Review</li>
+        <li><span class="key green"></span>Expected range</li>
+      </ul>
+      {% endif %}
+      <dl>
+        <dt>Declared price</dt><dd>{{ '{:,.2f}'.format(c.declared_price) }} {{ c.currency }}
+          {% if c.currency != c.base_currency %}<br><span class="muted">= {{ '{:,.2f}'.format(c.declared_base) }} {{ c.base_currency }} at rate {{ '%g' | format(c.exchange_rate) }}</span>{% endif %}</dd>
+        <dt>Market value</dt><dd>{% if c.market_value %}{{ '{:,.2f}'.format(c.market_value) }} {{ c.base_currency }}
+          {% if c.market_low %}<br><span class="muted">typical range {{ '{:,.0f}'.format(c.market_low) }} to {{ '{:,.0f}'.format(c.market_high) }}</span>{% endif %}
+          {% else %}Not available{% endif %}</dd>
+        <dt>Difference</dt><dd>{% if c.diff_pct is not none %}{{ '%+.1f' | format(c.diff_pct) }}%{% else %}n/a{% endif %}</dd>
+      </dl>
+      {% if c.market_value and c.market_source %}<p class="source">Where the market value comes from: {{ c.market_source }}</p>{% endif %}
+    </div>
+
+    {% if peers %}
+    <div class="card">
+      <h2>Earlier declarations at this port</h2>
+      {% if peers.median %}
+      <p>{{ peers.count }} other cars of this same model, trim and year were declared between
+        <strong>{{ '{:,.0f}'.format(peers.low) }}</strong> and <strong>{{ '{:,.0f}'.format(peers.high) }} {{ c.base_currency }}</strong>
+        (typical: {{ '{:,.0f}'.format(peers.median) }}).
+        This declaration is <strong>{{ '%+.1f' | format(peers.diff_pct) }}%</strong> against the typical one.</p>
+      <p class="muted">Earlier declarations may themselves be too low, so use this as context, not as a reference price.</p>
+      {% else %}
+      <p class="muted">{{ peers.count }} other car(s) of this same model, trim and year have been checked. A comparison appears once there are 3.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Why this flag?</h2>
+      <ol class="why">{% for line in (c.explanation or '').splitlines() %}<li>{{ line }}</li>{% endfor %}</ol>
+      <p class="muted">Thresholds used: green up to {{ '%g' | format(c.green_threshold) }}% below market, yellow up to {{ '%g' | format(c.yellow_threshold) }}%.</p>
+    </div>
+
+    <form class="card" method="post" action="/checks/{{ c.id }}/decision" data-busy>
+      <h2>Officer decision</h2>
+      <label>Decision
+        <select name="decision">
+          {% for key, label in decisions.items() %}<option value="{{ key }}" {{ 'selected' if c.decision == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Notes <textarea name="notes" rows="3">{{ c.notes or '' }}</textarea></label>
+      {% if c.decision_by %}<p class="muted">Last updated by {{ c.decision_by }} on {{ c.decision_at }} UTC</p>{% endif %}
+      <button class="btn primary noprint" type="submit">Save decision</button>
+    </form>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Vehicle</h2>
+      <dl>
+        <dt>VIN</dt><dd class="mono">{{ c.vin }}</dd>
+        <dt>Check digit</dt><dd>{% if not c.vin_standard %}Not a standard 17-character VIN{% elif c.vin_check_digit_ok %}Correct{% else %}Does not match{% endif %}</dd>
+        <dt>On paper</dt><dd>{{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }} {{ c.doc_trim or '' }}{% if not (c.doc_make or c.doc_model or c.doc_year) %}Not entered{% endif %}</dd>
+        <dt>VIN decodes to</dt><dd>{% if c.decoded_make %}{{ c.decoded_year or '' }} {{ c.decoded_make }} {{ c.decoded_model or '(model not in database)' }}{% else %}Not decoded{% endif %}</dd>
+        {% for label, value in specs.items() %}<dt>Built as: {{ label | lower }}</dt><dd>{{ value }}</dd>{% endfor %}
+        <dt>Physical check</dt><dd>{{ physical_checks.get(c.physical_check, 'Not recorded') }}</dd>
+      </dl>
+      {% if ticks %}
+      <ul class="marks">
+        {% for label, state in ticks.items() %}
+        <li><span class="{{ 'bad' if state == 'differs' else 'good' }}">{{ 'Differs' if state == 'differs' else 'Matches' }}:</span>
+          {{ label }}{% if specs.get(label) %} (VIN says {{ specs[label] }}){% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <dl>
+        {% if c.mileage is not none %}<dt>Mileage</dt><dd>{{ '{:,}'.format(c.mileage) }}</dd>{% endif %}
+        {% if c.incoterm %}<dt>Delivery term</dt><dd>{{ c.incoterm }}</dd>{% endif %}
+        <dt>Seller</dt><dd>{{ c.seller or 'n/a' }}</dd>
+        <dt>Buyer</dt><dd>{{ c.buyer or 'n/a' }}</dd>
+      </dl>
+      {% if c.physical_check == 'differs' %}<p class="note bad">The inspector recorded that the vehicle does not match the details in its VIN.</p>{% endif %}
+      {% for line in (c.mismatch_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
+      {% for line in (c.vin_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
+      {% for label, name, seen in parties %}{% if seen %}
+      <p class="note {{ 'warn' if seen.flagged else '' }}">{{ label }} "{{ name }}" appears in {{ seen.total }} earlier check{{ '' if seen.total == 1 else 's' }}{% if seen.flagged %}, {{ seen.flagged }} of which needed review{% endif %}. <a class="noprint" href="/history?q={{ name | urlencode }}">See them in history</a></p>
+      {% endif %}{% endfor %}
+      {% if previous %}
+      <p class="note warn">This VIN was checked before:
+        {% for p in previous %}<a href="/checks/{{ p.id }}">#{{ p.id }}</a> ({{ p.created_at[:10] }}, {{ '{:,.0f}'.format(p.declared_price) }} {{ p.currency }}){{ ', ' if not loop.last }}{% endfor %}</p>
+      {% endif %}
+    </div>
+
+    {% if c.photo_file or c.vin_photo_file %}
+    <div class="card noprint">
+      <h2>Photos</h2>
+      {% if c.photo_file %}<a href="/photos/{{ c.photo_file }}"><img class="preview" src="/photos/{{ c.photo_file }}" alt="Document photo"></a>{% endif %}
+      {% if c.vin_photo_file %}<a href="/photos/{{ c.vin_photo_file }}"><img class="preview" src="/photos/{{ c.vin_photo_file }}" alt="VIN plate photo"></a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 
-{% if peers %}
-<div class="card">
-  <h2>Earlier declarations at this port</h2>
-  {% if peers.median %}
-  <p>{{ peers.count }} other cars of this same model, trim and year were declared between
-    <strong>{{ '{:,.0f}'.format(peers.low) }}</strong> and <strong>{{ '{:,.0f}'.format(peers.high) }} {{ c.base_currency }}</strong>
-    (typical: {{ '{:,.0f}'.format(peers.median) }}).
-    This declaration is <strong>{{ '%+.1f' | format(peers.diff_pct) }}%</strong> against the typical one.</p>
-  <p class="muted">Earlier declarations may themselves be too low, so use this as context, not as a reference price.</p>
-  {% else %}
-  <p class="muted">{{ peers.count }} other car(s) of this same model, trim and year have been checked. A comparison appears once there are 3.</p>
-  {% endif %}
+<div class="printonly">
+  <p>This record is a risk indicator produced to support an officer's review. It is not a finding and does not replace the declared customs value.</p>
+  <div class="signatures"><div>Inspector: {{ c.created_by }}</div><div>Reviewing officer{% if c.decision_by %}: {{ c.decision_by }}{% endif %}</div></div>
 </div>
-{% endif %}
-
-<div class="card">
-  <h2>Why this flag?</h2>
-  <ol class="why">{% for line in (c.explanation or '').splitlines() %}<li>{{ line }}</li>{% endfor %}</ol>
-  <p class="muted">Thresholds used: green up to {{ '%g' | format(c.green_threshold) }}% below market, yellow up to {{ '%g' | format(c.yellow_threshold) }}%.</p>
-</div>
-
-<div class="card">
-  <h2>Vehicle</h2>
-  <dl>
-    <dt>VIN</dt><dd class="mono">{{ c.vin }}</dd>
-    <dt>Check digit</dt><dd>{% if not c.vin_standard %}Not a standard 17-character VIN{% elif c.vin_check_digit_ok %}Correct{% else %}Does not match{% endif %}</dd>
-    <dt>On paper</dt><dd>{{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }} {{ c.doc_trim or '' }}</dd>
-    <dt>VIN decodes to</dt><dd>{% if c.decoded_make %}{{ c.decoded_year or '' }} {{ c.decoded_make }} {{ c.decoded_model or '(model not in database)' }}{% else %}Not decoded{% endif %}</dd>
-    {% for label, value in specs.items() %}<dt>Built as: {{ label | lower }}</dt><dd>{{ value }}</dd>{% endfor %}
-    <dt>Physical check</dt><dd>{{ physical_checks.get(c.physical_check, 'Not recorded') }}</dd>
-  </dl>
-  {% if ticks %}
-  <ul class="marks">
-    {% for label, state in ticks.items() %}
-    <li><span class="{{ 'bad' if state == 'differs' else 'good' }}">{{ 'Differs' if state == 'differs' else 'Matches' }}:</span>
-      {{ label }}{% if specs.get(label) %} (VIN says {{ specs[label] }}){% endif %}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  <dl>
-    {% if c.mileage is not none %}<dt>Mileage</dt><dd>{{ '{:,}'.format(c.mileage) }}</dd>{% endif %}
-    {% if c.incoterm %}<dt>Delivery term</dt><dd>{{ c.incoterm }}</dd>{% endif %}
-    <dt>Seller</dt><dd>{{ c.seller or 'n/a' }}</dd>
-    <dt>Buyer</dt><dd>{{ c.buyer or 'n/a' }}</dd>
-  </dl>
-  {% if c.physical_check == 'differs' %}<p class="note bad">The inspector recorded that the vehicle does not match the details in its VIN.</p>{% endif %}
-  {% for line in (c.mismatch_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
-  {% for line in (c.vin_notes or '').splitlines() %}<p class="note warn">{{ line }}</p>{% endfor %}
-  {% for label, name, seen in parties %}{% if seen %}
-  <p class="note {{ 'warn' if seen.flagged else '' }}">{{ label }} "{{ name }}" appears in {{ seen.total }} earlier check{{ '' if seen.total == 1 else 's' }}{% if seen.flagged %}, {{ seen.flagged }} of which needed review{% endif %}. <a href="/history">See history</a></p>
-  {% endif %}{% endfor %}
-  {% if previous %}
-  <p class="note warn">This VIN was checked before:
-    {% for p in previous %}<a href="/checks/{{ p.id }}">#{{ p.id }}</a> ({{ p.created_at[:10] }}, {{ '{:,.0f}'.format(p.declared_price) }} {{ p.currency }}){{ ', ' if not loop.last }}{% endfor %}</p>
-  {% endif %}
-</div>
-
-{% if c.photo_file or c.vin_photo_file %}
-<div class="card noprint">
-  <h2>Photos</h2>
-  {% if c.photo_file %}<a href="/photos/{{ c.photo_file }}"><img class="preview" src="/photos/{{ c.photo_file }}" alt="Document photo"></a>{% endif %}
-  {% if c.vin_photo_file %}<a href="/photos/{{ c.vin_photo_file }}"><img class="preview" src="/photos/{{ c.vin_photo_file }}" alt="VIN plate photo"></a>{% endif %}
-</div>
-{% endif %}
-
-<form class="card" method="post" action="/checks/{{ c.id }}/decision">
-  <h2>Officer decision</h2>
-  <label>Decision
-    <select name="decision">
-      {% for key, label in decisions.items() %}<option value="{{ key }}" {{ 'selected' if c.decision == key }}>{{ label }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Notes <textarea name="notes" rows="3">{{ c.notes or '' }}</textarea></label>
-  {% if c.decision_by %}<p class="muted">Last updated by {{ c.decision_by }} on {{ c.decision_at }} UTC</p>{% endif %}
-  <button class="btn primary noprint" type="submit">Save decision</button>
-</form>
-<button class="btn noprint" type="button" id="printBtn">Print or save as PDF</button>
-<a class="btn noprint" href="/">New check</a>
 {% endblock %}
-{% block scripts %}<script src="/static/print.js?v={{ v }}"></script>{% endblock %}

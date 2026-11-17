@@ -1,33 +1,51 @@
 {% extends "base.html" %}
 {% set active = 'history' %}
+{% block title %}History · Import Value Checker{% endblock %}
 {% block content %}
-<h1>History</h1>
+<div class="pagehead">
+  <div>
+    <h1>History</h1>
+    <p class="lead">Every saved check. Tap a figure to see only those.</p>
+  </div>
+</div>
+{% set filtered = awaiting or flag or q or review %}
 <div class="tiles">
-  <a href="/history" class="{{ 'on' if not awaiting and not flag and not q }}"><strong>{{ summary.total }}</strong>checks in total</a>
-  <a href="/history?awaiting=1" class="{{ 'on' if awaiting }}"><strong>{{ summary.awaiting }}</strong>awaiting a decision</a>
-  <a href="/history?flag=RED"><strong>{{ summary.price_review }}</strong>price needs review</a>
-  <a href="/history"><strong>{{ summary.identity_review }}</strong>identity needs review</a>
+  <a href="/history" class="tile {{ 'on' if not filtered }}"><span class="v">{{ summary.total }}</span><span class="k">checks in total</span></a>
+  <a href="/history?awaiting=1" class="tile {{ 'on' if awaiting }}"><span class="v">{{ summary.awaiting }}</span><span class="k">awaiting a decision</span></a>
+  <a href="/history?review=price" class="tile {{ 'on' if review == 'price' }}"><span class="v">{{ summary.price_review }}</span><span class="k">price needs review</span></a>
+  <a href="/history?review=identity" class="tile {{ 'on' if review == 'identity' }}"><span class="v">{{ summary.identity_review }}</span><span class="k">identity needs review</span></a>
 </div>
 <form method="get" action="/history" class="card">
-  <label>Search by VIN <input name="q" value="{{ q }}" maxlength="17" autocapitalize="characters" class="mono" placeholder="Full or part of a VIN"></label>
-  <label>Flag
-    <select name="flag">
-      <option value="">All</option>
-      {% for key, label in flag_labels.items() %}<option value="{{ key }}" {{ 'selected' if flag == key }}>{{ label }}</option>{% endfor %}
-    </select>
-  </label>
-  <button class="btn primary" type="submit">Search</button>
-  <a class="btn" href="/history.csv?q={{ q | urlencode }}&flag={{ flag }}">Export to CSV</a>
+  <div class="row">
+    <label>Search <input name="q" value="{{ q }}" maxlength="40" placeholder="VIN, seller or buyer"></label>
+    <label>Flag
+      <select name="flag">
+        <option value="">All</option>
+        {% for key, label in flag_labels.items() %}<option value="{{ key }}" {{ 'selected' if flag == key }}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  {% if awaiting %}<input type="hidden" name="awaiting" value="1">{% endif %}
+  {% if review %}<input type="hidden" name="review" value="{{ review }}">{% endif %}
+  <div class="btnrow">
+    <button class="btn primary" type="submit">Search</button>
+    <a class="btn" href="/history.csv?q={{ q | urlencode }}&flag={{ flag }}&review={{ review }}{% if awaiting %}&awaiting=1{% endif %}">Export to CSV</a>
+  </div>
+  {% if filtered %}<p class="muted">Showing {{ checks | length }} check{{ '' if checks | length == 1 else 's' }}. <a href="/history">Clear filters</a></p>{% endif %}
 </form>
-{% if not checks %}<p class="muted">No checks found.</p>{% endif %}
+{% if not checks %}
+<div class="empty"><strong>No checks found</strong>{% if filtered %}Nothing matches these filters. <a href="/history">Show all checks</a>{% else %}Saved checks appear here.<a class="btn primary" href="/">Check a vehicle</a>{% endif %}</div>
+{% endif %}
 <ul class="list">
   {% for c in checks %}
   <li><a href="/checks/{{ c.id }}">
-    <span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>
     <span class="grow">
-      <span class="mono">{{ c.vin }}</span><br>
-      <span class="muted">{{ c.created_at[:16] }} · {{ c.doc_year or '' }} {{ c.doc_make }} {{ c.doc_model }}</span><br>
-      <span>{{ '{:,.0f}'.format(c.declared_price) }} {{ c.currency }} · {{ c.flag_label }}{% if c.diff_pct is not none %} ({{ '%+.0f' | format(c.diff_pct) }}%){% endif %}</span>{% if c.identity_review %}<br><strong>Identity needs review</strong>{% endif %}
+      <span class="rowline"><strong>{{ c.decoded_year or c.doc_year or '' }} {{ c.decoded_make or c.doc_make or '' }} {{ c.decoded_model or c.doc_model or 'Vehicle' }}</strong>
+        <span class="badge {{ c.flag | lower }}"><span class="dot {{ c.flag | lower }}" aria-hidden="true"></span>{{ c.flag_label }}{% if c.diff_pct is not none %} ({{ '%+.0f' | format(c.diff_pct) }}%){% endif %}</span>
+        {% if c.identity_review %}<span class="badge id">Identity needs review</span>{% endif %}
+        {% if c.decision != 'pending' %}<span class="badge">{{ decisions.get(c.decision, c.decision) }}</span>{% endif %}</span>
+      <span class="mono muted">{{ c.vin }}</span><br>
+      <span class="muted">Declared {{ '{:,.0f}'.format(c.declared_price) }} {{ c.currency }} · {{ c.created_at[:16] }} · {{ c.created_by }}</span>
     </span>
   </a></li>
   {% endfor %}

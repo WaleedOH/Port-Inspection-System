@@ -3,8 +3,8 @@
  "short_name": "VIN Check",
  "start_url": "/",
  "display": "standalone",
- "background_color": "#f4f5f7",
- "theme_color": "#14508c",
+ "background_color": "#eef1f4",
+ "theme_color": "#0e4166",
  "icons": [
   {
    "src": "/static/icon-192.png",

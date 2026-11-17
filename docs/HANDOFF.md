@@ -13,7 +13,7 @@ git checkout claude/peaceful-cori-ak5cxx     # all the work is on this branch
 python -m venv .venv
 source .venv/bin/activate                    # on Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest                                       # should end with "307 passed, 5 skipped"
+pytest                                       # should end with "314 passed, 5 skipped"
 uvicorn app.main:app --reload
 ```
 
@@ -47,7 +47,11 @@ Open <http://localhost:8000>. The first start prints the admin username and pass
 | Inspection checklist and the "vehicle identity" flag | Working |
 | Versions of the same model, with the price gap where known | Working. Quality varies by make |
 | Repeat seller and buyer warnings, comparison with earlier declarations | Working |
-| History with search, totals, CSV export, officer decision | Working |
+| History with search (VIN, seller, buyer), totals that filter, CSV export, officer decision | Working |
+| Dashboard: checks per day, flags, decisions, repeat sellers, estimated duty at stake | Working. Tried in a browser with demo data |
+| Audit log of logins, checks, decisions, price and settings changes, exports | Working |
+| Rebuilt screens: phone layout with bottom bar, desk layout with sidebar, price bar, printable record | Working. Every button was clicked through in a desktop browser at laptop and phone size on 17 November 2026 |
+| Demo data (`scripts/seed_demo.py`) and a pitch guide ([PORT-PITCH.md](PORT-PITCH.md)) | Working |
 | Paperwork photo reading (free, on the phone) | Working on a clean printed sample only |
 | Accounts, hashed passwords, login lock-out, access control | Working |
 | SQLite or PostgreSQL storage, photos kept in the database | Working. All tests pass on both |
@@ -90,7 +94,8 @@ Ways forward, cheapest first:
 4. **Enter the real depreciation schedule and exchange rates** in Settings. Both hold sample figures.
 5. **Decide the target market.** The vehicle database and most prices are for US-market cars. If the port mostly sees Gulf, European or Japanese market cars, the data sources need to change, and `HOME_MARKET` in `app/reference_prices.py` should be set.
 6. **Test paperwork reading on 30 to 50 real documents** and decide whether the free reader is good enough.
-7. **Before any real use:** change the admin password, set up HTTPS hosting on the organisation's own network, add an audit log of who viewed what, password reset, and a retention rule for old records.
+7. **Before any real use:** change the admin password, set up HTTPS hosting on the organisation's own network, add password reset and a retention rule for old records. The audit log is in.
+8. **To take it to a port:** follow [PORT-PITCH.md](PORT-PITCH.md). The first things a port will ask for are data for their own market, a back-test of their past declarations, and their language.
 
 ## Ideas not started
 

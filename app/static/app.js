@@ -38,7 +38,9 @@
     if (!$("vin").value.trim()) { showError("Scan or type a VIN first."); return; }
     const button = $("lookupBtn");
     button.disabled = true;
+    button.classList.add("busy");
     button.textContent = "Looking up";
+    if ($("result").hidden) $("loading").hidden = false;     // placeholder cards while we wait
     try {
       const r = await api("/api/lookup", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -49,7 +51,9 @@
     } catch (error) {
       showError(error.message);
     }
+    $("loading").hidden = true;
     button.disabled = false;
+    button.classList.remove("busy");
     button.textContent = "Look up";
   }
 
@@ -57,6 +61,7 @@
     const v = r.validation;
     const d = r.decoded;
     $("vin").value = v.vin;
+    const sameCar = v.ok && v.vin === lookedUpVin;   // looked up again: keep what was ticked
     lookedUpVin = v.ok ? v.vin : "";
     $("result").hidden = false;
 
@@ -90,7 +95,7 @@
       const specsNow = d.specs || {};
       $("vehicleSummary").textContent = ["Engine", "Fuel", "Drive", "Body"].map((k) => specsNow[k]).filter(Boolean).join(" · ");
       $("vehicleTitle").textContent = [d.year, d.make, d.model, d.trim || d.series].filter(Boolean).join(" ");
-      ticks = {};
+      if (!sameCar) ticks = {};
       const specs = { ...(d.specs || {}), "VIN on the car": "Same on dashboard, door frame and chassis stamp" };
       $("specList").replaceChildren(...Object.entries(specs).map(([label, value]) => checklistRow(label, value)));
       renderVersions(r.versions || []);
@@ -101,14 +106,14 @@
     $("priceCard").hidden = !v.ok;
     const value = r.value;
     expected = value ? value.value : null;
-    $("recent") && ($("recent").hidden = true);
+    $("recent").hidden = true;
     updateVerdict();
     $("priceFound").hidden = !value;
     $("priceMissing").hidden = !!value;
     if (value) {
       $("priceToday").textContent = `About ${money(value.value)} ${value.currency}`;
       $("priceRange").textContent = `${money(value.low)} to ${money(value.high)} ${value.currency}`;
-      $("priceNewLine").hidden = !value.new_price;
+      $("priceNewLabel").hidden = $("priceNew").hidden = !value.new_price;
       if (value.new_price) {
         $("priceNew").textContent = value.new_price_low && value.new_price_low !== value.new_price_high
           ? `${money(value.new_price_low)} to ${money(value.new_price_high)} ${value.currency}`
@@ -138,7 +143,7 @@
       b.type = "button";
       b.className = "tick " + state;
       b.textContent = state === "matches" ? "Matches" : "Differs";
-      b.setAttribute("aria-pressed", "false");
+      b.setAttribute("aria-pressed", String(ticks[label] === state));
       b.addEventListener("click", () => {
         ticks[label] = ticks[label] === state ? undefined : state;   // tap again to clear
         if (!ticks[label]) delete ticks[label];
@@ -148,6 +153,7 @@
       b.dataset.state = state;
       return b;
     });
+    li.classList.toggle("differs", ticks[label] === "differs");
     li.append(text, ...buttons);
     return li;
   }
@@ -178,8 +184,13 @@
     const rate = foreign ? parseFloat($("rate").value) : 1;
     const own = parseFloat($("market").value.replace(/,/g, ""));
     const reference = own > 0 ? own : expected;
-    if (!(declared >= 0) || !(rate > 0) || !reference) { box.hidden = true; return; }
+    if (!(declared >= 0) || !(rate > 0) || !reference) { box.hidden = true; $("gaugeBox").hidden = true; return; }
     const diff = (declared * rate - reference) / reference * 100;
+    // The bar runs from 0 to 150% of the expected value, like the one on the saved result.
+    const share = Math.min(Math.max(declared * rate / reference, 0), 1.5);
+    window.drawGauge($("gauge"), { redEnd: (100 - config.yellowThreshold) / 1.5, yellowEnd: (100 - config.greenThreshold) / 1.5,
+      expected: 100 / 1.5, marker: share / 1.5 * 100 });
+    $("gaugeBox").hidden = false;
     const below = -diff;
     const flag = below <= config.greenThreshold ? "green" : below <= config.yellowThreshold ? "yellow" : "red";
     const label = { green: "Within expected range", yellow: "Needs review", red: "Needs review (priority)" }[flag];
@@ -214,6 +225,7 @@
       : `${clean.length} of 17 characters`;
     if (clean !== lookedUpVin) {       // a different VIN: the result on screen no longer applies
       $("result").hidden = true;
+      $("recent").hidden = false;
       $("newPrice").value = "";
       expected = null;
       if (clean.length === 17 && !bad.length) lookup();
@@ -260,6 +272,7 @@
     if (!(price >= 0)) { showError("Enter the declared price as a number."); return; }
     const button = $("saveBtn");
     button.disabled = true;
+    button.classList.add("busy");
     const form = new FormData();
     const fields = { vin: "vin", make: "make", model: "model", trim: "trim", year: "year",
       seller: "seller", buyer: "buyer", mileage: "mileage", incoterm: "incoterm",
@@ -277,6 +290,7 @@
     } catch (error) {
       showError(error.message);
       button.disabled = false;
+      button.classList.remove("busy");
     }
   });
 

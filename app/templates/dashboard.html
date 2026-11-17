@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}Dashboard · Import Value Checker{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="lead">What the checks at this port add up to. Counts come from saved checks; the duty figure is an estimate.</p>
+  </div>
+  <div class="seg" role="group" aria-label="Period">
+    {% for d, label in periods.items() %}<a href="/dashboard?days={{ d }}" class="{{ 'on' if s.days == d }}" {{ 'aria-current=true' if s.days == d }}>{{ label }}</a>{% endfor %}
+  </div>
+</div>
+
+{% if not s.total %}
+<div class="empty"><strong>No checks in this period</strong>Once inspectors save checks, this page shows the workload, what was flagged and how much duty is at stake.<a class="btn primary" href="/">Check a vehicle</a></div>
+{% else %}
+<div class="tiles">
+  <div class="tile"><span class="k">Vehicles checked</span><span class="v">{{ '{:,}'.format(s.total) }}</span><span class="s">{{ periods[s.days] | lower }}</span></div>
+  <a class="tile" href="/history?review=price"><span class="k">Need review</span><span class="v">{{ s.review }}</span><span class="s">{{ s.review_pct }}% of checks</span></a>
+  <a class="tile" href="/history?awaiting=1"><span class="k">Awaiting a decision</span><span class="v">{{ s.awaiting }}</span><span class="s">{{ s.decided }} already decided</span></a>
+  <div class="tile accent"><span class="k">Estimated duty at stake</span><span class="v">{{ '{:,.0f}'.format(s.duty_at_stake) }}</span><span class="s">{{ base }}, at {{ '%g' | format(s.duty_rate) }}% duty</span></div>
+</div>
+<p class="muted">Duty at stake = (expected value − declared value) on declarations flagged for price review, × the duty rate in Settings: a total gap of {{ '{:,.0f}'.format(s.gap) }} {{ base }}. It shows what reviewing them is worth; a low price can still be legitimate.</p>
+
+<div class="card chart">
+  <h2>Checks per {{ 'week' if s.weekly else 'day' }}</h2>
+  {% set n = s.bars | length %}
+  <svg viewBox="0 0 100 50" preserveAspectRatio="none" role="img" aria-label="Checks per {{ 'week' if s.weekly else 'day' }}, coloured by flag. The table below has the same figures.">
+    <line class="grid" x1="0" x2="100" y1="49.5" y2="49.5"/><line class="grid" x1="0" x2="100" y1="25" y2="25"/><line class="grid" x1="0" x2="100" y1="1" y2="1"/>
+    {% for bar in s.bars %}{% for r in bar.rects %}
+    <rect class="{{ r.flag }}" x="{{ r.x }}" y="{{ r.y }}" width="{{ r.w }}" height="{{ r.h }}"><title>{{ bar.label }}: {{ r.count }} {{ flag_names[r.flag] }}</title></rect>
+    {% endfor %}{% endfor %}
+  </svg>
+  <div class="chart-x"><span>{{ s.bars[0].label }}</span><span>{{ s.bars[n // 2].label }}</span><span>{{ s.bars[-1].label }}</span></div>
+  <ul class="legend">
+    <li><span class="key red"></span>Priority review</li><li><span class="key yellow"></span>Review</li>
+    <li><span class="key green"></span>Expected range</li><li><span class="key no_data"></span>No market value</li>
+    <li>Tallest bar: {{ s.tallest }} check{{ '' if s.tallest == 1 else 's' }}</li>
+  </ul>
+  <details class="plain"><summary>Show as a table</summary>
+    <div class="tablewrap"><table>
+      <thead><tr><th>{{ 'Week from' if s.weekly else 'Day' }}</th><th class="num">Priority</th><th class="num">Review</th><th class="num">Expected</th><th class="num">No value</th><th class="num">Total</th></tr></thead>
+      <tbody>{% for bar in s.bars %}{% if bar.total %}<tr><td>{{ bar.label }}</td>{% for flag, count in bar.parts %}<td class="num">{{ count }}</td>{% endfor %}<td class="num"><strong>{{ bar.total }}</strong></td></tr>{% endif %}{% endfor %}</tbody>
+    </table></div>
+  </details>
+</div>
+
+<div class="split">
+  <div class="card stack">
+    <h2>How the checks were flagged</h2>
+    <svg viewBox="0 0 100 10" preserveAspectRatio="none" role="img" aria-label="Share of checks by flag">
+      {% set ns = namespace(x=0) %}
+      {% for flag, count in s.flags %}{% if count %}
+      <rect class="{{ flag }}" x="{{ '%.3f' | format(ns.x) }}" y="0" width="{{ '%.3f' | format(count / s.total * 100) }}" height="10"><title>{{ flag_names[flag] }}: {{ count }}</title></rect>
+      {% set ns.x = ns.x + count / s.total * 100 %}
+      {% endif %}{% endfor %}
+    </svg>
+    <ul class="rank">
+      {% for flag, count in s.flags %}
+      <li><span class="top"><span><span class="badge {{ flag }}"><span class="dot {{ flag }}" aria-hidden="true"></span>{{ flag_names[flag] | capitalize }}</span></span><span>{{ count }} · {{ (count / s.total * 100) | round | int }}%</span></span></li>
+      {% endfor %}
+      <li><span class="top"><span><span class="badge id">Identity needs review</span></span><span>{{ s.identity }}</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>What officers decided</h2>
+    {% if s.review %}
+    <ul class="rank">
+      <li><span class="top"><span>Referred for valuation review</span><span>{{ s.referred }} of {{ s.review }}</span></span>
+        <svg class="meter" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4"/><rect class="red" width="{{ '%.2f' | format(s.referred / s.review * 100) }}" height="4"/></svg></li>
+      <li><span class="top"><span>Cleared, no action</span><span>{{ s.cleared }} of {{ s.review }}</span></span>
+        <svg class="meter" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4"/><rect class="green" width="{{ '%.2f' | format(s.cleared / s.review * 100) }}" height="4"/></svg></li>
+      <li><span class="top"><span>Still awaiting a decision</span><span>{{ s.awaiting }} of {{ s.review }}</span></span>
+        <svg class="meter" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4"/><rect class="yellow" width="{{ '%.2f' | format(s.awaiting / s.review * 100) }}" height="4"/></svg></li>
+    </ul>
+    <p class="muted">Duty riding on the referred declarations: about {{ '{:,.0f}'.format(s.referred_duty) }} {{ base }}.</p>
+    {% else %}<p class="muted">Nothing needed review in this period.</p>{% endif %}
+  </div>
+</div>
+
+<div class="split three">
+  <div class="card">
+    <h2>Sellers that keep needing review</h2>
+    {% if s.sellers %}
+    <ul class="rank">{% for r in s.sellers %}
+      <li><span class="top"><a href="/history?q={{ r.name | urlencode }}">{{ r.name }}</a><span>{{ r.flagged }} of {{ r.total }} flagged</span></span>
+        <svg class="meter" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4"/><rect class="red" width="{{ '%.2f' | format(r.flagged / r.total * 100) }}" height="4"/></svg></li>
+    {% endfor %}</ul>
+    <p class="muted">A repeat pattern is a reason to look closer, not proof.</p>
+    {% else %}<p class="muted">No seller had a flagged check. Sellers are counted when their name is entered under "More details".</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Makes most often flagged</h2>
+    {% if s.makes %}
+    <ul class="rank">{% for r in s.makes %}
+      <li><span class="top"><span>{{ r.name }}</span><span>{{ r.flagged }} of {{ r.total }}</span></span>
+        <svg class="meter" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4"/><rect class="yellow" width="{{ '%.2f' | format(r.flagged / r.total * 100) }}" height="4"/></svg></li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted">Nothing flagged in this period.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Checks by inspector</h2>
+    <ul class="rank">{% for r in s.people %}
+      <li><span class="top"><span>{{ r.name }}</span><span>{{ r.total }} checks · {{ r.flagged }} flagged</span></span></li>
+    {% endfor %}</ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

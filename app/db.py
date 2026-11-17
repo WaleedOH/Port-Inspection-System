@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS web_prices (
     found INTEGER NOT NULL, low {REAL}, high {REAL}, site TEXT, url TEXT, fetched_at TEXT NOT NULL,
     PRIMARY KEY (make_key, model_key, year)
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+    id {PK}, at TEXT NOT NULL, username TEXT NOT NULL, action TEXT NOT NULL, detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 CREATE TABLE IF NOT EXISTS photos (
     name TEXT PRIMARY KEY, media_type TEXT NOT NULL, data {BLOB} NOT NULL, created_at TEXT NOT NULL
 );
@@ -68,6 +72,11 @@ DEFAULT_SETTINGS = {
     "green_threshold": DEFAULT_GREEN_THRESHOLD,
     "yellow_threshold": DEFAULT_YELLOW_THRESHOLD,
     "base_currency": "USD",
+    # Shown in the header and on printed records, e.g. "Port of Example, Customs".
+    "org_name": "",
+    # Import duty as % of the vehicle's value. Used only to estimate, on the
+    # dashboard, how much duty rides on the declarations that need review.
+    "duty_rate": 5.0,
     # Share of the new price kept at each age in years (0 = new). SAMPLE values:
     # replace with your customs authority's official depreciation schedule.
     "depreciation": [100, 82, 74, 66, 60, 54, 48, 44, 39, 35, 32, 29, 26, 23, 21, 19, 17, 15, 14, 12, 11, 10],
@@ -280,15 +289,23 @@ def get_check(check_id: int):
         return conn.execute("SELECT * FROM checks WHERE id = ?", (check_id,)).fetchone()
 
 
-def list_checks(vin_query: str = "", flag: str = "", limit: int | None = 200, awaiting: bool = False):
+def list_checks(vin_query: str = "", flag: str = "", limit: int | None = 200, awaiting: bool = False,
+                review: str = ""):
+    """vin_query matches part of a VIN, or part of a seller's or buyer's name.
+    review = 'price' or 'identity' keeps the checks that need that kind of review."""
     sql, params = "SELECT * FROM checks WHERE 1=1", []
     if awaiting:   # needs review and nobody has decided yet
         sql += " AND decision = 'pending' AND (flag IN ('YELLOW', 'RED') OR identity_review = 1)"
+    if review == "price":
+        sql += " AND flag IN ('YELLOW', 'RED')"
+    elif review == "identity":
+        sql += " AND identity_review = 1"
     if vin_query:
         # Escape % and _ so they are searched literally.
         like = vin_query.upper().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        sql += " AND vin LIKE ? ESCAPE '\\'"
-        params.append(f"%{like}%")
+        sql += (" AND (vin LIKE ? ESCAPE '\\' OR upper(seller) LIKE ? ESCAPE '\\' "
+                "OR upper(buyer) LIKE ? ESCAPE '\\')")
+        params += [f"%{like}%"] * 3
     if flag:
         sql += " AND flag = ?"
         params.append(flag)
@@ -462,3 +479,36 @@ def delete_web_price(make_key: str, model_key: str, year: int) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM web_prices WHERE make_key = ? AND model_key = ? AND year = ?",
                      (make_key, model_key, year))
+
+
+# ---------- figures for the dashboard ----------
+def checks_since(since: str):
+    """Every check made on or after this UTC time, oldest first."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT id, created_at, created_by, vin, decoded_make, doc_make, seller, buyer, declared_base, "
+            "market_value, diff_pct, flag, identity_review, decision, decision_at FROM checks "
+            "WHERE created_at >= ? ORDER BY id", (since,)).fetchall()
+
+
+# ---------- audit log: who did what, and when ----------
+def audit(username: str, action: str, detail: str = "") -> None:
+    """Record one action. Never let a logging problem break the action itself."""
+    try:
+        with connect() as conn:
+            conn.execute("INSERT INTO audit_log (at, username, action, detail) VALUES (?,?,?,?)",
+                         (now(), username or "(not logged in)", action, (detail or "")[:500]))
+    except Exception:
+        pass
+
+
+def list_audit(query: str = "", limit: int | None = 300):
+    like = f"%{query.strip().lower()}%"
+    sql = ("SELECT * FROM audit_log WHERE lower(username) LIKE ? OR lower(action) LIKE ? "
+           "OR lower(COALESCE(detail, '')) LIKE ? ORDER BY id DESC")
+    params: list = [like, like, like]
+    if limit:
+        sql += " LIMIT ?"
+        params.append(limit)
+    with connect() as conn:
+        return conn.execute(sql, params).fetchall()

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Import Value Checker{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block content %}
+<div class="empty">
+  <strong>{{ title }}</strong>
+  {% if detail %}{{ detail }}{% elif code == 404 %}There is nothing at this address.{% else %}The page could not be shown (error {{ code }}).{% endif %}
+  <a class="btn primary" href="/">Back to checking a vehicle</a>
+</div>
+{% endblock %}

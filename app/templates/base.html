@@ -45,7 +45,7 @@
   </nav>
   {% endif %}
   <main id="content" class="{{ 'plain' if not user }} {% block mainclass %}{% endblock %}">
-    {% if ephemeral %}<p class="note warn" role="status"><strong>Demo mode.</strong> This host has no permanent storage, so saved checks, photos and accounts are erased regularly. Do not use it for real work.</p>{% endif %}
+    {% if ephemeral %}<p class="note warn" role="status"><strong>Demo mode.</strong> This host has no permanent storage, so saved checks, photos and accounts are erased regularly. Do not use it for real work.{% if demo_data %} The checks already here are made up for the demonstration.{% endif %}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
   <script src="/static/site.js?v={{ v }}"></script>

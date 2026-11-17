@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import config, dashboard, db, reference_prices, research, vpic, web_prices
+from . import config, dashboard, db, demo, reference_prices, research, vpic, web_prices
 from .compare import FLAG_LABELS, compare_prices, validate_thresholds
 from .mismatch import find_mismatches
 from .pricing import get_provider
@@ -71,6 +71,7 @@ def ensure_ready() -> None:
             print(f"\n*** First start. Log in with username '{username}' and password "
                   f"'{password}'  (shown only once; set ADMIN_PASSWORD to choose your own) ***\n")
         db.create_user(username, password, is_admin=True)
+    demo.seed_if_asked()
     _ready = True
 
 
@@ -121,7 +122,7 @@ def page(request: Request, name: str, **context):
     context.update(user=request.session.get("user"), is_admin=request.session.get("is_admin"),
                    flag_labels=FLAG_LABELS, decisions=DECISIONS, physical_checks=PHYSICAL_CHECKS,
                    v=ASSET_VERSION, org_name=_org_name(),
-                   ephemeral=config.is_ephemeral(), needs_setup=not _ready)
+                   ephemeral=config.is_ephemeral(), demo_data=os.environ.get("DEMO_DATA") == "1", needs_setup=not _ready)
     status = context.pop("status_code", 200)
     return templates.TemplateResponse(request, name, context, status_code=status)
 

@@ -72,6 +72,8 @@ python scripts/seed_demo.py --clear    # remove them again
 
 The cars are real VINs from the test data; the declared prices, sellers, buyers and inspectors are invented. Demo checks are saved under inspector names starting with `demo.`. The script refuses to run against a PostgreSQL database unless you add `--force`.
 
+For a public demo site whose storage is erased regularly, set `DEMO_DATA=1` instead: the app adds the same demo checks by itself whenever it starts empty. It is ignored when `DATABASE_URL` is set.
+
 ### Run the tests
 
 ```bash
@@ -131,7 +133,7 @@ app/
   vehicle_data/        vehicles.db.gz (vehicle database) and prices/ (price datasets)
   templates/, static/  the screens; static/vendor holds the OCR and barcode libraries
 scripts/               build the vehicle database, build and import price datasets, seed demo data
-tests/                 314 tests, including 40 real VINs in tests/data
+tests/                 315 tests, including 40 real VINs in tests/data
 docs/                  HANDOFF.md (status and next steps), PORT-PITCH.md, RESEARCH.md
 ```
 

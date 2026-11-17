@@ -127,3 +127,15 @@ def test_organisation_name_and_duty_rate_are_settings(admin):
     assert "The duty rate must be a number" in bad.text
     admin.post("/settings", data={**form, "org_name": "", "duty_rate": "5"})
     assert "Changed settings" in admin.get("/audit").text
+
+
+def test_a_demo_site_fills_itself_once_and_never_touches_a_real_database(monkeypatch):
+    from app import demo
+    with db.connect() as conn:
+        before = conn.execute("SELECT COUNT(*) AS n FROM checks").fetchone()["n"]
+    assert before and demo.seed_if_asked() == 0                 # not asked for
+    monkeypatch.setenv("DEMO_DATA", "1")
+    assert demo.seed_if_asked() == 0                            # there are checks already
+    monkeypatch.setattr(db, "connect", lambda: pytest.fail("a real database must not be read"))
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/db")
+    assert demo.seed_if_asked() == 0

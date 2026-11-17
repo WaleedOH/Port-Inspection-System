@@ -385,10 +385,11 @@ def test_reference_price_list_gives_a_range_from_the_vin_alone(logged_in, own_da
     # Real 2013 GMC Terrain Denali AWD: nothing typed, nothing in the price book.
     r = logged_in.post("/api/lookup", json={"vin": "2GKFLZE39D6253778"}).json()
     value = r["value"]
-    assert value and value["new_price_low"] < value["new_price"] < value["new_price_high"]
+    assert value and value["new_price_low"] <= value["new_price"] <= value["new_price_high"]
     assert 20000 < value["new_price_low"] and value["new_price_high"] < 45000
     assert "built-in price list" in value["source"] and "all-wheel drive" in value["source"]
-    assert "nearest year on file" in value["source"]          # the list has 2015, not 2013
+    assert "nearest year on file" not in value["source"]      # the list has 2013 itself
+    assert "narrowed by trim (Denali" in value["source"]
     assert value["low"] < value["value"] < value["high"]
     # A price in our own price book still wins over the built-in list.
     logged_in.post("/prices", data={"make": "GMC", "model": "Terrain", "trim": "Denali AWD", "year": "2013",
@@ -405,15 +406,16 @@ def test_reference_price_matching_rules():
     assert not exact.adjusted and awd.versions < exact.versions and awd.narrowed_by == ["all-wheel drive"]
     assert rp.find("BMW", "328i", 2015).low > 25000            # '328i' is a '3 Series'
     assert rp.find("Mazda", "Mazda3", 2015) is not None
-    older = rp.find("GMC", "Terrain", 2013)
-    assert older.adjusted and older.typical < exact.typical     # scaled back two model years
+    latest, later = rp.find("GMC", "Terrain", 2019), rp.find("GMC", "Terrain", 2021)
+    assert not latest.adjusted and later.adjusted and later.year == 2019
+    assert later.typical > latest.typical                       # scaled forward two model years
     assert rp.find("Zastava", "Yugo", 2015) is None
     assert rp.find("GMC", "Terrain", 2040) is None              # too far from any year on file
     # Newer datasets: 2026 prices, missing makes, and another market only as a fallback.
     wrangler = rp.find("Jeep", "Wrangler", 2026)
     assert not wrangler.adjusted and wrangler.low < wrangler.high
-    camry = rp.find("Toyota", "Camry", 2022)                    # US 2026 data beats Qatar 2025
-    assert camry.adjusted and camry.datasets == ("carfinder_us_2025_2027",)
+    camry = rp.find("Toyota", "Camry", 2023)                    # US data beats Qatar 2025
+    assert camry.adjusted and camry.year == 2025 and "qatar_2025" not in camry.datasets
     land_cruiser = rp.find("Toyota", "Land Cruiser", 2020)      # last US year on file is the 200 series
     assert land_cruiser is not None
     geely = rp.find("Geely", "Monjaro", 2025)                   # not sold in the US at all

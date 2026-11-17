@@ -22,5 +22,29 @@
     "years": "2025",
     "url": "https://github.com/profmusgrave/qatarcars",
     "market": "Qatar"
+  },
+  "carconnection_1990_2019": {
+    "name": "New Cars Price 2019 dataset with trim names (collected from The Car Connection, published on Kaggle by Prassanth; licence not stated)",
+    "years": "1990-2019",
+    "url": "https://www.kaggle.com/datasets/prassanth/new-cars-price-2019",
+    "market": "US"
+  },
+  "web_trims_us_2027": {
+    "name": "Prices of each trim for model year 2027, read from public pages (Car and Driver and MotorTrend), last pulled 2026-11-16",
+    "years": "2027",
+    "url": "https://www.motortrend.com/cars/",
+    "market": "US"
+  },
+  "web_trims_us_2026": {
+    "name": "Prices of each trim for model year 2026, read from public pages (Car and Driver and MotorTrend), last pulled 2026-11-16",
+    "years": "2026",
+    "url": "https://www.motortrend.com/cars/",
+    "market": "US"
+  },
+  "web_trims_us_2025": {
+    "name": "Prices of each trim for model year 2025, read from public pages (Car and Driver and MotorTrend), last pulled 2026-11-16",
+    "years": "2025",
+    "url": "https://www.motortrend.com/cars/",
+    "market": "US"
   }
 }

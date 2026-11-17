@@ -6,8 +6,8 @@ cleans the rows and writes app/vehicle_data/prices/<name>.csv.gz, which the
 app loads automatically on its next start.
 
 Example:
-    python scripts/import_prices.py new_cars.csv --name cars_2018_2024 \\
-        --title "New car prices 2018-2024 (source ...)" --url https://... \\
+    python scripts/import_prices.py new_cars.csv --name cars_2020_2024 \\
+        --title "New car prices 2020-2024 (source ...)" --url https://... \\
         --make Make --model Model --year Year --msrp MSRP --trim Trim
 
 Optional columns: --trim --cylinders --hp --drive --doors --style

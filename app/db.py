@@ -174,6 +174,8 @@ NEW_COLUMNS = {
     },
     # verified = 0 for prices found by online search that nobody has confirmed yet.
     "price_book": {"verified": "INTEGER NOT NULL DEFAULT 1"},
+    # trims = JSON list of [trim name, price] when the page listed each version.
+    "web_prices": {"trims": "TEXT"},
 }
 
 
@@ -438,14 +440,15 @@ def get_web_price(make_key: str, model_key: str, year: int):
 
 def save_web_price(make_key: str, model_key: str, year: int, price) -> None:
     """price is a WebPrice, or None to remember that nothing was found."""
-    values = ((1, price.low, price.high, price.site, price.url, price.fetched_at) if price
-              else (0, None, None, None, None, now()))
+    values = ((1, price.low, price.high, price.site, price.url, price.fetched_at,
+               json.dumps([list(t) for t in price.trims]) if price.trims else None) if price
+              else (0, None, None, None, None, now(), None))
     with connect() as conn:
         conn.execute(
-            "INSERT INTO web_prices (make_key, model_key, year, found, low, high, site, url, fetched_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(make_key, model_key, year) DO UPDATE SET "
+            "INSERT INTO web_prices (make_key, model_key, year, found, low, high, site, url, fetched_at, trims) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(make_key, model_key, year) DO UPDATE SET "
             "found = excluded.found, low = excluded.low, high = excluded.high, site = excluded.site, "
-            "url = excluded.url, fetched_at = excluded.fetched_at",
+            "url = excluded.url, fetched_at = excluded.fetched_at, trims = excluded.trims",
             (make_key, model_key, year, *values))
 
 

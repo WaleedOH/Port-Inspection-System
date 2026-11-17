@@ -290,6 +290,9 @@ def _lookup_value(vin: str, make: str, model: str, year: int, mileage: int | Non
         # Not in our stored data for this year: look it up on the web, and keep it.
         online, note = web_prices.find(make, model, year)
         if online:
+            specs = decoded.get("specs") or {}
+            online = online.for_vin(model, trim or decoded.get("trim") or specs.get("Trim"),
+                                    decoded.get("series") or specs.get("Series"), specs.get("Drive"))
             new_price, price_range = online.typical, (online.low, online.high)
             source = online.describe()
     if not new_price and listed:

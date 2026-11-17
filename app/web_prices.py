@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, db
+from . import config, db, trims as trim_names
 
 USER_AGENT = "ImportValueChecker/1.0 (vehicle reference-price lookup; one request per model)"
 TIMEOUT = 7.0
@@ -55,6 +55,8 @@ def model_names(make: str, model: str) -> list[str]:
         names.append(f"{model} 1500")
     if make_key == "mercedesbenz" and re.fullmatch(r"[a-z]{1,3}\d{2,3}", key):
         names.append(f"{re.match('[a-z]+', key).group(0).upper()}-Class")
+    if make_key == "mercedesbenz" and re.fullmatch(r"[a-z]{1,3}", key):
+        names.append(f"{model}-Class")               # 'GLC' -> 'GLC-Class'
     return names
 
 
@@ -65,15 +67,40 @@ class WebPrice:
     site: str
     url: str
     fetched_at: str
+    trims: tuple = ()        # (trim name, price) for each version, when the page lists them
+    matched: str = ""        # the trims this VIN was matched to, once for_vin() has narrowed
 
     @property
     def typical(self) -> float:
         return round((self.low + self.high) / 2, -1)
 
+    def for_vin(self, model: str, vin_trim: str | None, series: str | None = None,
+                drive: str | None = None) -> "WebPrice":
+        """Narrow the model's range to the versions this VIN can be."""
+        names = [name for name, _ in self.trims]
+        kept = [self.trims[i] for i in trim_names.match(names, vin_trim, series, ignore=model)]
+        if not kept:
+            return self
+        # Two trims can still differ by drive type ('SX FWD', 'SX AWD').
+        all_wheel = re.search(r"AWD|4WD|4X4|ALL", (drive or "").upper())
+        two_wheel = re.search(r"FWD|RWD|2WD|4X2|FRONT|REAR", (drive or "").upper())
+        if all_wheel or two_wheel:
+            same = [t for t in kept if bool(re.search(r"\b(AWD|4WD|4X4)\b", t[0].upper())) == bool(all_wheel)]
+            kept = same or kept
+        prices = [price for _, price in kept]
+        return WebPrice(min(prices), max(prices), self.site, self.url, self.fetched_at, self.trims,
+                        matched=", ".join(dict.fromkeys(name for name, _ in kept)))
+
     def describe(self) -> str:
-        single = ("; the page gave one figure only, and it is unclear which version it is for"
-                  if self.low == self.high else "")
-        return (f"found online at {self.site} on {self.fetched_at[:10]} and saved to our data{single}; "
+        if self.matched:
+            detail = f"; price for this VIN's trim ({self.matched})"
+        elif self.low == self.high:
+            detail = "; the page gave one figure only, and it is unclear which version it is for"
+        elif self.trims:
+            detail = "; this VIN's trim was not among the listed versions, so this is the whole range for the model"
+        else:
+            detail = ""
+        return (f"found online at {self.site} on {self.fetched_at[:10]} and saved to our data{detail}; "
                 "not yet confirmed by an administrator")
 
 
@@ -148,6 +175,46 @@ def extract_prices(html: str) -> list[float]:
     return sorted(set(prices))
 
 
+_TRIM_ROW = re.compile(
+    r'<tr[^>]*>\s*<td[^>]*>\s*<a[^>]*href="[^"]*/specs/[^"]*"[^>]*>([^<]{1,90})</a>\s*</td>'
+    r'\s*<td[^>]*>\s*(?:<p[^>]*>)?\s*' + _MONEY, re.IGNORECASE)
+
+
+def extract_trims(html: str, year: int) -> list[tuple[str, float]]:
+    """Each version of the model with its price, where the page lists them:
+    a table of trims linking to their specifications, or the list of trims in
+    the page's own data for this model year."""
+    found: dict[str, float] = {}
+    for name, amount in _TRIM_ROW.findall(html):
+        price = _plausible(amount)
+        if price:
+            found.setdefault(" ".join(unescape(name).split()), price)
+    if not found:
+        data = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+
+        def walk(node):
+            if isinstance(node, dict):
+                listed = node.get("chrome_trims")
+                if isinstance(listed, list) and str(node.get("year")) == str(year):
+                    for trim in listed:
+                        style = trim.get("msrp_low_style") if isinstance(trim, dict) else None
+                        price = _plausible(style.get("base_msrp")) if isinstance(style, dict) else None
+                        if price and trim.get("name") and not trim.get("estimated_price"):
+                            found.setdefault(str(trim["name"]).strip()[:90], price)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        if data:
+            try:
+                walk(json.loads(data.group(1)))
+            except (ValueError, RecursionError):
+                pass
+    return sorted(found.items(), key=lambda item: item[1])
+
+
 def page_is_about(html: str, model: str, year: int) -> bool:
     """The page title must name this model and this year. A site that sends
     us to its current-year page instead would give the wrong year's price."""
@@ -187,10 +254,13 @@ def try_site(client: httpx.Client, site: str, pattern: str, separator: str,
             return {**outcome, "result": f"site answered {response.status_code}"}
         if not page_is_about(response.text, model, year):
             return {**outcome, "result": "page is not about this model and year"}
-        prices = extract_prices(response.text)
+        listed = extract_trims(response.text, year)
+        # The table of versions is sometimes a selection, so the page's own
+        # price range is kept too: together they give the model's full range.
+        prices = sorted({price for _, price in listed} | set(extract_prices(response.text)))
         if not prices:
             return {**outcome, "result": "no manufacturer's price found on the page"}
-        return {**outcome, "result": "found", "prices": prices, "url": str(response.url)}
+        return {**outcome, "result": "found", "prices": prices, "trims": listed, "url": str(response.url)}
     except httpx.HTTPError as exc:
         return {**outcome, "result": f"could not be reached ({type(exc).__name__})"}
 
@@ -203,25 +273,30 @@ def _new_client() -> httpx.Client:
 def fetch(make: str, model: str, year: int) -> tuple[WebPrice | None, list[dict]]:
     """Ask the sites one after another. Stop as soon as one gives a price
     RANGE (cheapest to dearest version); a single 'starting at' price is kept
-    but the next site is still asked, in case it has the range."""
-    tried, prices, sites, url = [], [], [], ""
+    but the next site is still asked, in case it has the range. A site that
+    lists the price of every version is preferred to one that gives a range."""
+    tried, prices, sites, url, listed = [], [], [], "", []
     with _new_client() as client:
         for site, pattern, separator in SITES:
             for name in model_names(make, model):
                 outcome = try_site(client, site, pattern, separator, make, name, year)
                 tried.append(outcome)
                 if outcome["result"] == "found":
-                    prices += outcome["prices"]
-                    sites.append(site)
-                    url = url or outcome["url"]
+                    if outcome.get("trims") and not listed:
+                        # This site has a price per version: use its figures alone.
+                        listed, prices, sites, url = outcome["trims"], list(outcome["prices"]), [site], outcome["url"]
+                    elif not listed:
+                        prices += outcome["prices"]
+                        sites.append(site)
+                        url = url or outcome["url"]
                     break
                 if outcome["result"].startswith(("not allowed", "site answered 403", "could not be reached")):
                     break       # the site itself said no: another name will not help
-            if len(set(prices)) >= 2:
+            if listed or len(set(prices)) >= 2:
                 break
     if not prices:
         return None, tried
-    return WebPrice(min(prices), max(prices), " and ".join(sites), url, db.now()), tried
+    return WebPrice(min(prices), max(prices), " and ".join(sites), url, db.now(), tuple(listed)), tried
 
 
 def find(make: str, model: str, year: int) -> tuple[WebPrice | None, str]:
@@ -231,7 +306,8 @@ def find(make: str, model: str, year: int) -> tuple[WebPrice | None, str]:
         return None, ""
     stored = db.get_web_price(_key(make), _key(model), year)
     if stored and stored["found"]:
-        return WebPrice(stored["low"], stored["high"], stored["site"], stored["url"], stored["fetched_at"]), ""
+        listed = tuple((name, price) for name, price in json.loads(stored["trims"] or "[]"))
+        return WebPrice(stored["low"], stored["high"], stored["site"], stored["url"], stored["fetched_at"], listed), ""
     if stored:
         age_days = (time.time() - time.mktime(time.strptime(stored["fetched_at"], "%Y-%m-%d %H:%M:%S"))) / 86400
         if age_days < RETRY_NOT_FOUND_AFTER_DAYS:

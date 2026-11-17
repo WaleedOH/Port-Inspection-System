@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from . import trims as trim_names
+
 STORE = Path(__file__).parent / "vehicle_data" / "prices"
 HOME_MARKET = "US"        # prices for this market are preferred; others are a fallback
 MAX_YEAR_GAP = 5          # how far to look for the same model in another year
@@ -149,7 +151,11 @@ def find(make: str, model: str, year: int, specs: dict | None = None) -> Referen
     # Trim first: it says the most about price. Only datasets with trim names can use it.
     trim_words = _words(specs.get("Trim")) | _words(specs.get("Series"))
     if trim_words:
-        kept = [r for r in rows if r.get("trim") and _words(r["trim"]) & trim_words]
+        # Whole trim names first ('EX' is not 'EX-L'); failing that, any shared word.
+        exact = trim_names.match([r.get("trim") or "" for r in rows], specs.get("Trim"), specs.get("Series"),
+                                 ignore=model)
+        kept = ([rows[i] for i in exact]
+                or [r for r in rows if r.get("trim") and _words(r["trim"]) & trim_words])
         if kept:
             if len(kept) < len(rows):
                 narrowed.append(f"trim ({specs.get('Trim') or specs.get('Series')})")

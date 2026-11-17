@@ -108,6 +108,7 @@ app/
   compare.py           declared price vs. expected value -> flag + explanation
   reference_prices.py  the built-in price list
   web_prices.py        automatic lookup of missing prices on public pages
+  trims.py             matches a VIN's trim to the trim names in a price list
   research.py          optional price search with Claude (off by default)
   pricing/             today's value from the price when new (swappable)
   readers/             paperwork photo readers (swappable)
@@ -116,7 +117,7 @@ app/
   vehicle_data/        vehicles.db.gz (vehicle database) and prices/ (price datasets)
   templates/, static/  the screens; static/vendor holds the OCR and barcode libraries
 scripts/               build the vehicle database, build and import price datasets
-tests/                 304 tests, including 40 real VINs in tests/data
+tests/                 307 tests, including 40 real VINs in tests/data
 docs/                  HANDOFF.md (status and next steps), RESEARCH.md
 ```
 
@@ -152,6 +153,7 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 **Automatic web lookup** is on by default and needs no key or account. When the stored data has no price for a car's exact model year, the app reads a public car-information page for that make, model and year (MotorTrend, then Car and Driver), takes the manufacturer's price range from it, and saves it in the `web_prices` table. The next car of that model is answered from the database.
 
 - It accepts a price only from a page whose title names that model and year, and only if it is a plausible car price.
+- Where the page lists every trim with its price, all of them are saved, and each VIN gets the price of its own trim. Otherwise the app keeps the range for the model.
 - It identifies itself honestly, obeys each site's `robots.txt`, and asks about each model and year once. Sites that refuse automated visitors are not used.
 - Only make, model and year are sent, never a VIN or a name.
 - Found prices are marked "found online, not yet confirmed". Some pages give a single figure without saying which version it is for; the app says so.
@@ -162,10 +164,12 @@ When an inspector scans a VIN, the app answers from **its own stored data**. It 
 
 ### The app's own built-in price list
 
-The app ships with about **11,000 manufacturer prices** (price when new) in `app/vehicle_data/prices/`. `app/reference_prices.py` reads them, so a price appears from the VIN alone, with nothing typed and no internet.
+The app ships with about **47,000 manufacturer prices** (price when new) in `app/vehicle_data/prices/`. `app/reference_prices.py` reads them, so a price appears from the VIN alone, with nothing typed and no internet.
 
 | Dataset | Prices | Years | Notes |
 |---|---|---|---|
+| Trim prices read from public pages (`web_trims_us_<year>`) | 4,068 | 2025–2027 | US. The price of each trim, for about 300 current models. Refreshed with `scripts/pull_new_prices.py` |
+| New Cars Price 2019 (from The Car Connection) | 32,200 | 1990–2019, no 2017 | US. Trim names, engine and drive per version. Only models still on sale in 2018–2019, with their earlier years |
 | Car Features and MSRP (Edmunds-derived) | 10,086 | 1990–2017 | US. Engine, cylinders and drive per version, no trim names |
 | carfinder | 722 | 2025–2027 | US. Cheapest and most expensive version of each model. MIT licence |
 | qatarcars | 104 | 2025 | Qatar prices converted from riyals. Covers brands not sold in the US (BYD, Chery, Geely, Jetour). CC BY 4.0, by Paul Musgrave |
@@ -174,27 +178,40 @@ The app ships with about **11,000 manufacturer prices** (price when new) in `app
 How a price is found:
 
 - The app takes the versions of the same make, model and year and narrows them with what the VIN says (trim where the dataset has it, then cylinders, drive, horsepower). It shows the **range** of prices that remain.
+- Trim names are matched the way people write them (`app/trims.py`): a VIN's "SXP" finds "SX-Prestige", "EXL" finds "EX-L", and "EX" does not pick "EX-L". A VIN that allows two trims gets the range across both. When the VIN's trim is not in the list, the whole model range is shown.
 - When the exact model year is not on file, it uses the nearest year within 5 years, scales the price by 1.5% a year, and says so.
 - US prices are preferred. Another market's price is used only when there is no US price, and is labelled as a rough guide.
 - A price in the price book (below) always wins over this list.
 
 What it covers, and what it does not:
 
-- On 4,000 real VINs (mostly model years 2003 to 2015) it found a price for 75%. Only 15% were the exact model year; the rest were adjusted from a nearby year.
-- **Model years 2018 to 2024 have no data of their own.** Cars from those years get a price adjusted from 2017 or 2025–2026, which can be well off when a model was redesigned in between.
-- The 2025–2027 prices are a range from the cheapest to the most expensive version, without trim names, and were compiled by a third party from manufacturer sites. Spot-check them before relying on one.
+- On 4,000 real VINs (mostly model years 2003 to 2015) it found a price for 95%, and for 83% it was the exact model year; the rest were adjusted from a nearby year. For 41% the VIN's trim narrowed the price. Before the New Cars Price 2019 dataset was added these figures were 77%, 16% and 0%.
+- Models that were dropped before 2018 and are not in the Edmunds-derived dataset still have no price, for example the Jeep Liberty and Patriot, the Chrysler Town and Country and the Ford E-Series vans.
+- **Model years 2020 to 2024 have no data of their own.** Cars from those years get a price adjusted from 2019 or 2025–2026, which can be well off when a model was redesigned in between.
+- For 2025–2027, about 300 current models have the price of each trim (205 of them for 2027 so far). The other models have only the cheapest and most expensive version, from the carfinder dataset. Models filed under a variant name (many plug-in hybrids, some Mercedes-Benz and electric models) were not found by the pull; the list is printed at the end of each run.
 
 **Adding more price data.** The store is a folder: every `*.csv.gz` file in `app/vehicle_data/prices/` is one dataset, and `SOURCES.json` records where each came from. Any CSV that lists cars with a manufacturer's price can be added with one command, and the app uses it from the next start:
 
 ```bash
-python scripts/import_prices.py new_cars.csv --name cars_2018_2024 \
-    --title "New car prices 2018-2024 (where it came from)" \
+python scripts/import_prices.py new_cars.csv --name cars_2020_2024 \
+    --title "New car prices 2020-2024 (where it came from)" \
     --make Make --model Model --year Year --msrp MSRP --trim Trim
 ```
 
 When a dataset has trim names, the app uses the VIN's trim to narrow the price first.
 
+**Keeping new model years up to date.** `python scripts/pull_new_prices.py` reads the public page of every current model (MotorTrend, then Car and Driver) and stores the price of each trim, one dataset per model year. It takes about an hour, waits between requests and obeys `robots.txt`. New model years arrive all year round and prices change mid-year, so run it every three months and commit the changed files:
+
+```bash
+python scripts/pull_new_prices.py                              # next year and this year
+python scripts/pull_new_prices.py --years 2026 --skip-existing   # only fill gaps for one year
+```
+
+The prices are the sites' published base prices per trim, without delivery fees or options, so a dealer's window sticker is usually a few thousand dollars higher. Copying a site's whole price list is heavier use than a single lookup: check both sites' terms of use before any commercial use.
+
 **About the largest dataset:** "Car Features and MSRP" was originally collected from Edmunds and published on Kaggle by CooperUnion; this copy was taken from the MIT-licensed `qacBase` R package. The package licence covers the package; the original rights in the price data are less clear, so check this before any commercial use. `scripts/build_price_list.py` rebuilds that file and `scripts/add_open_datasets.py` rebuilds the three small ones.
+
+**About "New Cars Price 2019":** it was collected from The Car Connection and published on Kaggle by Prassanth, where its licence is listed as "Unknown". Treat it like the Edmunds-derived data: fine for a prototype, to be checked before any commercial use. `scripts/add_carconnection.py` rebuilds it.
 
 ### The app's own vehicle database
 
@@ -277,7 +294,7 @@ For real customs data, your organisation will probably require hosting on its ow
 
 ## Known limits
 
-- Today's value is an estimate from the price when new and a depreciation schedule, not market data. The built-in price list has no data of its own for model years 2018 to 2024, and many prices are adjusted from a nearby model year.
+- Today's value is an estimate from the price when new and a depreciation schedule, not market data. The built-in price list has no data of its own for model years 2020 to 2024, and many prices are adjusted from a nearby model year.
 - The starting exchange rates are samples. Enter the official customs rates in Settings; the inspector can also set the rate per check.
 - The vehicle database (NHTSA data) mainly covers vehicles built for the US market. Others often decode to a make only. The check digit is mandatory only in North America, so a mismatch is shown as a warning.
 - Chassis numbers that are not 17 characters (pre-1981, Japanese domestic market) are accepted with a warning and are not decoded.

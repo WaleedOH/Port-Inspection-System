@@ -85,21 +85,21 @@ def test_a_site_that_forbids_robots_is_not_visited(web):
 
 def test_lookup_goes_online_only_when_our_data_has_no_exact_price(web, monkeypatch):
     monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: vpic.decode_offline(vin))
-    web.use({"caranddriver.com": (200, JSON_LD_PAGE.replace("Jeep Wrangler", "Ram 1500").replace("2021", "2014")
+    web.use({"caranddriver.com": (200, JSON_LD_PAGE.replace("Jeep Wrangler", "Ram 1500")
                                   .replace("28900", "24385").replace("74995", "51675"))})
     with TestClient(app) as c:
         c.post("/login", data={"username": "admin", "password": "test-password-123"})
         # 2015 GMC Terrain is in the built-in list for that exact year: no web visit.
         value = c.post("/api/lookup", json={"vin": "2GKALMEK0F6100001"}).json()["value"]
         assert "built-in price list" in value["source"] and web.visited == []
-        # A 2014 Ram 1500 is not in our data at all: looked up, shown, and saved.
-        value = c.post("/api/lookup", json={"vin": "1C6RR7MT1ES422095"}).json()["value"]
+        # The list has no 2021 prices of its own (only nearby years): looked up, shown, and saved.
+        value = c.post("/api/lookup", json={"vin": "1C6SRFFT7MN000001"}).json()["value"]
         assert (value["new_price_low"], value["new_price_high"]) == (24385, 51675)
         assert "found online at Car and Driver" in value["source"] and "saved to our data" in value["source"]
         visits = len(web.visited)
-        c.post("/api/lookup", json={"vin": "1C6RR7MT0ES000001"})      # second Ram 1500: no new visit
+        c.post("/api/lookup", json={"vin": "1C6SRFFT9MN000002"})      # second Ram 1500: no new visit
         assert len(web.visited) == visits
-        assert "2014 ram 1500" in c.get("/prices").text and "Found online and saved" in c.get("/prices").text
+        assert "2021 ram 1500" in c.get("/prices").text and "Found online and saved" in c.get("/prices").text
 
 
 def test_lookup_is_off_in_tests_by_default():
@@ -122,3 +122,68 @@ def test_other_names_for_the_same_model_are_tried(web):
     web.use({"/bmw/3-series/2012": (200, page)})
     price, _ = web_prices.find("BMW", "328i", 2012)
     assert price is not None and any("/bmw/328i/2012" in url for url in web.visited)
+
+
+# ---------- a price for each trim ----------
+def _row(name, price):
+    return (f'<tr class="a"><td class="b"><a href="/cars/zastava/yugo/specs/1" rel="nofollow">{name}</a></td>'
+            f'<td class="c"><p class="d">{price}</p></td></tr>')
+
+
+TRIM_TABLE_PAGE = ("<html><head><title>2021 Zastava Yugo Review: Pricing and Trims</title></head><body>"
+                   "<p>Lease from $399 a month.</p><table>"
+                   + _row("Yugo LX FWD", "$40,735") + _row("Yugo EX FWD", "$45,335") + _row("Yugo EX AWD", "$47,335")
+                   + _row("Yugo SX-Prestige AWD", "$55,435") + _row("Yugo X-Line SX-Prestige AWD", "$56,435")
+                   + _row("Yugo X-Pro SX-Prestige AWD", "$58,335") + "</table></body></html>")
+
+TRIM_DATA_PAGE = """<html><head><title>2021 Zastava Yugo Review, Pricing, and Specs</title></head><body>
+<script id="__NEXT_DATA__" type="application/json">{"props": {"models": [
+ {"year": 2021, "chrome_trims": [{"name": "LX", "msrp_low_style": {"id": 1, "base_msrp": 40735}, "estimated_price": false},
+                                 {"name": "SX-Prestige", "msrp_low_style": {"id": 2, "base_msrp": 55435}, "estimated_price": false},
+                                 {"name": "Concept", "msrp_low_style": {"id": 3, "base_msrp": 70000}, "estimated_price": true}]},
+ {"year": 2020, "chrome_trims": [{"name": "LX", "msrp_low_style": {"id": 4, "base_msrp": 37885}, "estimated_price": false}]}
+]}}</script></body></html>"""
+
+
+def test_trim_names_are_matched_the_way_people_write_them():
+    from app import trims
+    names = ["LX FWD", "EX FWD", "EX AWD", "EX-L AWD", "SX-Prestige AWD", "X-Line SX-Prestige AWD", "X-Pro SX-Prestige AWD"]
+    pick = lambda *vin_trims: [names[i] for i in trims.match(names, *vin_trims)]  # noqa: E731
+    assert pick("EX") == ["EX FWD", "EX AWD"]                        # 'EX' is not 'EX-L'
+    assert pick("EXL") == ["EX-L AWD"] and pick("ex-l") == ["EX-L AWD"]
+    assert pick("SXP") == ["SX-Prestige AWD"]                        # 'SXP' = 'SX-Prestige'
+    assert pick("SXP, X-LINE SXP") == ["SX-Prestige AWD", "X-Line SX-Prestige AWD"]   # the VIN allows either
+    assert pick(None, "X-Pro SX Prestige") == ["X-Pro SX-Prestige AWD"]              # from the series field
+    assert pick("Limited") == [] and pick(None) == [] and pick("AWD") == []
+    assert trims.match(["Yugo LX FWD", "Yugo EX FWD"], "Yugo LX", ignore="Yugo") == [0]
+
+
+def test_each_trim_and_its_price_is_read_from_a_page():
+    listed = web_prices.extract_trims(TRIM_TABLE_PAGE, 2021)
+    assert len(listed) == 6 and listed[0] == ("Yugo LX FWD", 40735) and listed[-1] == ("Yugo X-Pro SX-Prestige AWD", 58335)
+    # Or from the page's own data, for this model year only, without estimated prices.
+    assert web_prices.extract_trims(TRIM_DATA_PAGE, 2021) == [("LX", 40735), ("SX-Prestige", 55435)]
+    assert web_prices.extract_trims(JSON_LD_PAGE, 2021) == []
+
+
+def test_the_vin_trim_picks_its_own_price_from_the_page(web, monkeypatch):
+    def decoded(trim, drive):
+        return {"available": True, "make": "Zastava", "model": "Yugo", "year": 2021, "trim": trim,
+                "specs": {"Trim": trim, "Drive": drive}, "clean": True, "message": None}
+    web.use({"motortrend.com": (200, TRIM_TABLE_PAGE)})
+    with TestClient(app) as c:
+        c.post("/login", data={"username": "admin", "password": "test-password-123"})
+        monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: decoded("SXP, X-LINE SXP", "4WD/4-Wheel Drive/4x4"))
+        value = c.post("/api/lookup", json={"vin": "1C6SRFFT7MN000001"}).json()["value"]
+        assert (value["new_price_low"], value["new_price_high"]) == (55435, 56435)
+        assert "price for this VIN's trim (Yugo SX-Prestige AWD, Yugo X-Line SX-Prestige AWD)" in value["source"]
+        visits = len(web.visited)
+        # Another trim of the same model: answered from the stored page, no new visit.
+        monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: decoded("EX", "FWD/Front-Wheel Drive"))
+        value = c.post("/api/lookup", json={"vin": "1C6SRFFT7MN000001"}).json()["value"]
+        assert (value["new_price_low"], value["new_price_high"]) == (45335, 45335) and len(web.visited) == visits
+        # A trim the page does not list: the whole range, and the app says so.
+        monkeypatch.setattr(vpic, "decode_vin", lambda vin, client=None: decoded("Limited", ""))
+        value = c.post("/api/lookup", json={"vin": "1C6SRFFT7MN000001"}).json()["value"]
+        assert (value["new_price_low"], value["new_price_high"]) == (40735, 58335)
+        assert "was not among the listed versions" in value["source"]

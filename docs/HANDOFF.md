@@ -13,7 +13,7 @@ git checkout claude/peaceful-cori-ak5cxx     # all the work is on this branch
 python -m venv .venv
 source .venv/bin/activate                    # on Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest                                       # should end with "304 passed, 5 skipped"
+pytest                                       # should end with "307 passed, 5 skipped"
 uvicorn app.main:app --reload
 ```
 
@@ -38,8 +38,9 @@ Open <http://localhost:8000>. The first start prints the admin username and pass
 | VIN check: length, I/O/Q, check digit, "did you mean?" fixes | Working. The check digit agreed with about 547,700 real VINs |
 | VIN decoding from the app's own vehicle database, no internet | Working. Right make, model and year for 4,992 of 5,000 real VINs |
 | VIN barcode scan with the camera, and from a photo | Working with a generated barcode and a simulated camera |
-| Built-in price list, about 11,000 prices in 4 datasets | Working. Found a price for 75% of 4,000 real VINs, only 15% for the exact model year |
-| Automatic web lookup of missing prices, saved after the first find | Working on the live server for 4 of 6 sample cars |
+| Built-in price list, about 47,000 prices in 8 datasets | Working. Found a price for 95% of 4,000 real VINs, 83% for the exact model year, 41% narrowed by trim |
+| Automatic web lookup of missing prices, saved after the first find | Working on the live server for 4 of 6 sample cars. Now also reads the price of each trim and picks the VIN's own |
+| Price of each trim for 2025–2027 models, pulled with `scripts/pull_new_prices.py` | Working. Pulled 16 November 2026: 300 models for 2025, 278 for 2026, 205 for 2027. 58 of 365 models not found |
 | Price book that learns typed-in prices, plus CSV import | Working |
 | Today's value from a depreciation schedule set in Settings | Working. The schedule holds sample figures |
 | Instant verdict, flags, "Why this flag?", print to PDF | Working |
@@ -68,15 +69,15 @@ Be careful with these: the code exists and has tests with stand-ins, but it has 
 
 The tool is only as good as its prices, and this is where it is weakest.
 
-- **Model years 2018 to 2024 have no stored data.** They depend on the web lookup, or on a price adjusted from 2017 or 2025–2026.
-- **The web lookup reads two sites** (MotorTrend, Car and Driver). It gives a range for the model, not the exact trim, and sometimes a single figure of unclear meaning. It found nothing for a 2012 BMW 328i or a Nissan Patrol. The sites could block it or change their pages at any time, and their terms of use have not been checked.
-- **The largest dataset's rights are unclear.** It was originally collected from Edmunds. Fine for a prototype; get it checked before selling the product.
+- **Model years 2020 to 2024 have no stored data.** They depend on the web lookup, or on a price adjusted from 2019 or 2025–2026. 2017 comes only from the Edmunds-derived dataset, without trim names.
+- **The web lookup reads two sites** (MotorTrend, Car and Driver). For recent model years it gets the price of each trim; for older ones often only a range for the model, and sometimes a single figure of unclear meaning. It found nothing for a 2012 BMW 328i or a Nissan Patrol. The sites could block it or change their pages at any time, and their terms of use have not been checked.
+- **The two largest datasets' rights are unclear.** One was originally collected from Edmunds, the other from The Car Connection (Kaggle lists its licence as "Unknown"). Fine for a prototype; get them checked before selling the product.
 - **Today's value is a formula, not market data.** It is the price when new multiplied by an age percentage.
-- **Makes with no stored prices** include Jeep, Ram and MINI before 2025.
+- **Models dropped before 2018 are patchy.** The newest dataset only has models that were still on sale in 2018–2019. The Jeep Liberty and Patriot, Chrysler Town and Country and Ford E-Series vans have no stored price.
 
 Ways forward, cheapest first:
 
-1. **Download the "New Cars Price 2019" dataset from Kaggle** (about 32,000 trims with prices, 1990 to 2019, collected from The Car Connection) and load it with `scripts/import_prices.py`. Kaggle was blocked from the build environment. This adds trim names and 2018–2019.
+1. ~~Download the "New Cars Price 2019" dataset from Kaggle.~~ **Done on 15 November 2026:** 32,200 prices with trim names, 1990 to 2019, loaded with `scripts/add_carconnection.py`.
 2. **Get a price list or past declarations from the customs authority** and import them. The Prices page takes CSV files.
 3. **Buy listing data from Rebrowser** (AutoTrader listings, listed at $2 per 1,000 rows). It has manufacturer prices for new cars and Kelley Blue Book value ranges for used ones, which would replace the depreciation formula. Its free sample is for non-commercial use only, so it is not bundled.
 4. **A paid VIN data provider** for the price of the exact car as built. MarketCheck's NeoVIN was the best fit found, at about $0.08 per lookup. None of the providers was confirmed to cover Gulf, European or Japanese market cars.
@@ -85,7 +86,7 @@ Ways forward, cheapest first:
 
 1. **Try it on a real phone with real cars.** Scan real VIN stickers, check several cars you know the price of, and write down what is wrong. This will change the priorities below.
 2. **Give the data a permanent home.** Either run the app on your own machine or server (free, nothing to set up), or connect a PostgreSQL database to the Vercel site by setting `DATABASE_URL`.
-3. **Improve price coverage** using the list above, starting with the Kaggle dataset.
+3. **Improve price coverage** using the list above. The Kaggle dataset is in; model years 2020 to 2024 are the gap that is left. Run `python scripts/pull_new_prices.py` every three months to keep new model years current, and look at the models it lists as not found.
 4. **Enter the real depreciation schedule and exchange rates** in Settings. Both hold sample figures.
 5. **Decide the target market.** The vehicle database and most prices are for US-market cars. If the port mostly sees Gulf, European or Japanese market cars, the data sources need to change, and `HOME_MARKET` in `app/reference_prices.py` should be set.
 6. **Test paperwork reading on 30 to 50 real documents** and decide whether the free reader is good enough.
